@@ -1,12 +1,19 @@
 #include "utility.h"
 #include "log.h"
 
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
+
+int min(int lhs, int rhs)
+{
+    return lhs > rhs ? rhs : lhs;
+}
+
+int max(int lhs, int rhs)
+{
+    return lhs > rhs ? lhs : rhs;
+}
 
 char *strdup(char *src)
 {
@@ -15,7 +22,7 @@ char *strdup(char *src)
     if (src)
     {
         len = strlen(src);
-        cpy = (char *) malloc(len);
+        cpy = (char *) malloc(len + 1);
         ANLOG(cpy, len);
         strcpy(cpy, src);
     }
@@ -32,21 +39,6 @@ char *strndup(char *src, size_t n)
         strncpy(cpy, src, n);
     }
     return cpy;
-}
-
-void create_dir_if_not_exists(const char *path)
-{
-    if (access(path, F_OK))
-    {
-        LOG("Missing directory '%s'\n", path);
-        if (mkdir(path, 0700))
-        {
-            fprintf(stderr, "Failed to create directory '%s': %s\n",
-                path, strerror(errno));
-            exit(1);
-        }
-        LOG("Created directory '%s'\n", path);
-    }
 }
 
 size_t strncount(const char *str, char ch, size_t n)

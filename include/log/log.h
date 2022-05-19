@@ -65,14 +65,25 @@
             _PLOG_IMPL(_LOG_OUT_SIGN, __VA_ARGS__); \
         } while (0)
 
-    #define ELOG(...) \
+    #define _ELOG_IMPL(SIGN, ...) \
         do { \
             _LOG_PRINT_TABS(); \
-            _LOG_PRINT_INFO(_LOG_STAY_SIGN); \
+            _LOG_PRINT_INFO(SIGN); \
             _RLOG_IMPL(__VA_ARGS__); \
             _RLOG_IMPL(": %s\n", strerror(errno)); \
         } while (0)
 
+    #define ELOG(...) _ELOG_IMPL(_LOG_STAY_SIGN, __VA_ARGS__)
+    #define ELOG_E(...) \
+        do { \
+            _ELOG_IMPL(_LOG_IN_SIGN, __VA_ARGS__); \
+            _LOG_INC_TABS(); \
+        } while (0)
+    #define ELOG_L(...) \
+        do { \
+            _LOG_DEC_TABS(); \
+            _ELOG_IMPL(_LOG_OUT_SIGN, __VA_ARGS__); \
+        } while (0)
     #define ELOG_EX(...) do { ELOG(__VA_ARGS__); exit(1); } while(0)
 
     /* Log a clear recursive function enterance event */
@@ -119,6 +130,10 @@
     #define PLOG(...)                   ALL_UNUSED(__VA_ARGS__)
     #define PLOG_E(...)                 ALL_UNUSED(__VA_ARGS__)
     #define PLOG_L(...)                 ALL_UNUSED(__VA_ARGS__)
+    #define ELOG(...)                   ALL_UNUSED(__VA_ARGS__)
+    #define ELOG_E(...)                 ALL_UNUSED(__VA_ARGS__)
+    #define ELOG_L(...)                 ALL_UNUSED(__VA_ARGS__)
+    #define ELOG_EX(...)                ALL_UNUSED(__VA_ARGS__)
     #define LOG_E(...)                  ALL_UNUSED(__VA_ARGS__)
     #define LOG_L(...)                  ALL_UNUSED(__VA_ARGS__)
     #define LOG_EC(...)                 ALL_UNUSED(__VA_ARGS__)

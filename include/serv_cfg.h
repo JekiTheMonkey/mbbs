@@ -5,11 +5,6 @@
 
 #include <arpa/inet.h>
 
-/*
- * argv[1] - IP
- * argv[2] = port
- * argv[3] = database directory
- */
 struct serv_cfg
 {
     char *ip_s;

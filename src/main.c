@@ -1,13 +1,14 @@
-#include "serv_cfg.h"
 #include "server.h"
 
+/*
+ * argv[1] - IP
+ * argv[2] = port
+ * argv[3] = database directory
+ */
 int main(int argc, char **argv)
 {
     (void) argc;
-    serv_cfg cfg;
     server serv;
-
-    init_cfg(&cfg, argv);
-    serv_init(&cfg, &serv);
+    serv_init(&serv, argv);
     return serv_start(&serv);
 }

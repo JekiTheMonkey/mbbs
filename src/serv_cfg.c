@@ -71,20 +71,3 @@ void init_cfg(serv_cfg *cfg, char **argv)
     init_addr(cfg);
     LOG_L("\n");
 }
-
-void delete_cfg(serv_cfg *cfg)
-{
-    FREE_IFEX(cfg->ip_s);
-    FREE_IFEX(cfg->port_s);
-    FREE_IFEX(cfg->db_dir);
-    FREE(cfg);
-}
-
-void print_cfg(const serv_cfg *cfg)
-{
-    printf(
-        "IP_s: '%s'\n"
-        "Port_s: '%s'\n"
-        "Database directory: '%s'\n",
-        cfg->ip_s, cfg->port_s, cfg->db_dir);
-}
