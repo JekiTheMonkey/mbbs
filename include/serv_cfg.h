@@ -5,6 +5,8 @@
 
 #include <arpa/inet.h>
 
+/* Simple struct that contains essential server configuration */
+
 struct serv_cfg
 {
     char *ip_s;

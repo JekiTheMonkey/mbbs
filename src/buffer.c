@@ -10,15 +10,18 @@ buffer *buffer_create(size_t size)
     ALOG(buf);
     buf->ptr = (void *) malloc(size);
     ANLOG(buf->ptr, size);
-
     buf->used = 0;
-    size_t *s_p = (size_t *) &buf->size;
-    *s_p = size;
-
+    buffer_set_size(buf, size);
     return buf;
 }
 
 void buffer_delete(buffer *buf)
 {
     FREE(buf->ptr);
+}
+
+void buffer_set_size(buffer *buf, size_t size)
+{
+    size_t *s_p = (size_t *) &buf->size;
+    *s_p = size;
 }

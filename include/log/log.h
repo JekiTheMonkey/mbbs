@@ -42,6 +42,24 @@
             _LOG_DEC_TABS(); \
             _LOG_IMPL(_LOG_OUT_SIGN, __VA_ARGS__); \
         } while (0)
+    #define LOG_EX(...) \
+        do { \
+            _LOG_IMPL(_LOG_STAY_SIGN, __VA_ARGS__); \
+            exit(1); \
+        } while (0)
+
+    /* Log a clear recursive function enterance event */
+    #define LOG_EC(...) \
+        do { \
+            _LOG_PLOG_PRINT_INFO(_LOG_IN_SIGN); \
+            _LOG_IMPL(__VA_ARGS__); \
+        } while (0)
+    #define LOG_LC(...) \
+        do { \
+            _LOG_PRINT_TABS(); \
+            _LOG_PLOG_PRINT_INFO(_LOG_OUT_SIGN); \
+            _LOG_IMPL(__VA_ARGS__); \
+        } while (0)
 
 
     /* Trace logging macro with PID */
@@ -85,19 +103,8 @@
             _ELOG_IMPL(_LOG_OUT_SIGN, __VA_ARGS__); \
         } while (0)
     #define ELOG_EX(...) do { ELOG(__VA_ARGS__); exit(1); } while(0)
-
-    /* Log a clear recursive function enterance event */
-    #define LOG_EC(...) \
-        do { \
-            _LOG_PLOG_PRINT_INFO(_LOG_IN_SIGN); \
-            _LOG_IMPL(__VA_ARGS__); \
-        } while (0)
-    #define LOG_LC(...) \
-        do { \
-            _LOG_PRINT_TABS(); \
-            _LOG_PLOG_PRINT_INFO(_LOG_OUT_SIGN); \
-            _LOG_IMPL(__VA_ARGS__); \
-        } while (0)
+    #define PELOG(msg) ELOG(msg);
+    #define PELOG_EX(msg) do { ELOG(msg); exit(1); } while(0)
 
 
     /* Control and log ptr passed to a clear recursive function */
@@ -127,6 +134,11 @@
 #else
     #define RLOG(...)                   ALL_UNUSED(__VA_ARGS__)
     #define LOG(...)                    ALL_UNUSED(__VA_ARGS__)
+    #define LOG_E(...)                  ALL_UNUSED(__VA_ARGS__)
+    #define LOG_L(...)                  ALL_UNUSED(__VA_ARGS__)
+    #define LOG_EX(...)                 LL_UNUSED(__VA_ARGS__)
+    #define LOG_EC(...)                 ALL_UNUSED(__VA_ARGS__)
+    #define LOG_LC(...)                 ALL_UNUSED(__VA_ARGS__)
     #define PLOG(...)                   ALL_UNUSED(__VA_ARGS__)
     #define PLOG_E(...)                 ALL_UNUSED(__VA_ARGS__)
     #define PLOG_L(...)                 ALL_UNUSED(__VA_ARGS__)
@@ -134,10 +146,8 @@
     #define ELOG_E(...)                 ALL_UNUSED(__VA_ARGS__)
     #define ELOG_L(...)                 ALL_UNUSED(__VA_ARGS__)
     #define ELOG_EX(...)                ALL_UNUSED(__VA_ARGS__)
-    #define LOG_E(...)                  ALL_UNUSED(__VA_ARGS__)
-    #define LOG_L(...)                  ALL_UNUSED(__VA_ARGS__)
-    #define LOG_EC(...)                 ALL_UNUSED(__VA_ARGS__)
-    #define LOG_LC(...)                 ALL_UNUSED(__VA_ARGS__)
+    #define PELOG(msg)         perror(msg);
+    #define PELOG_EX(msg) do { perror(msg); exit(1); } while(0)
 
     #define LOG_CFNPP(ptr)     do { assert(ptr); } while (0)
     #define LOG_FNPP(ptr)      do { assert(ptr); assert(*ptr); } while (0)

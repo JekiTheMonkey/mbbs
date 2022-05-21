@@ -36,19 +36,19 @@ void init_null_vals(serv_cfg *cfg)
 {
     if (!cfg->ip_s)
     {
-        cfg->ip_s = strdup((char *) default_ip);
-        LOG("Server config's IP is set to default - '%s'\n", default_ip);
+        cfg->ip_s = strdup(DEF_IP);
+        LOG("Server config's IP is set to default - '%s'\n", DEF_IP);
     }
     if (!cfg->port_s)
     {
-        cfg->port_s = strdup((char *) default_port);
-        LOG("Server config's port is set to default - '%s'\n", default_port);
+        cfg->port_s = strdup(DEF_PORT);
+        LOG("Server config's port is set to default - '%s'\n", DEF_PORT);
     }
     if (!cfg->db_dir)
     {
-        cfg->db_dir = strdup((char *) default_db_dir);
+        cfg->db_dir = strdup(DEF_DB_DIR);
         LOG("Server config's database directory is set to default - '%s'\n",
-            default_db_dir);
+            DEF_DB_DIR);
     }
 }
 
