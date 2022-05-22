@@ -2,7 +2,7 @@
 CC = gcc
 
 # Target
-TARGET = mbbs
+TARGET = mbbs-server
 
 # The directories
 SRCDIR = src
