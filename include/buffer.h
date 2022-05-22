@@ -16,10 +16,15 @@ struct buffer
     void *ptr;
     const size_t size;
     size_t used;
+    size_t last_read_bytes;
 };
 
 buffer *buffer_create(size_t size);
 void buffer_delete(buffer *buf);
 void buffer_set_size(buffer *buf, size_t size);
+void buffer_append(buffer *buf, const char *data, size_t bytes);
+void buffer_move_left(buffer *buf, size_t bytes);
+void buffer_move_right(buffer *buf, size_t bytes);
+void buffer_clear(buffer *buf);
 
 #endif /* !BUFFER_H */

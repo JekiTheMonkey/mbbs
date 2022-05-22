@@ -27,6 +27,7 @@ enum com_state {
     sst_err,                            /* error */
 
     /* Read states */
+    sst_lsn_auth,                       /* listen for authorization key */
     sst_lsn_req,                        /* listen for a request */
     sst_lsn_usr,                        /* listen for username */
     sst_lsn_pwd,                        /* listen for password */
@@ -34,7 +35,6 @@ enum com_state {
     /* Write states */
     sst_intro,                          /* show intro */
     sst_help,                           /* show help */
-    sst_send_inv,                       /* send invite message */
     sst_ask_usr,                        /* ask username */
     sst_ask_pwd,                        /* ask password */
 };
@@ -54,7 +54,6 @@ struct session
     int fd;
     int logined;
     buffer *buf;
-    size_t written_bytes;
 };
 
 session *session_create(int cfd);

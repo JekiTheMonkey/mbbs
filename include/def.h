@@ -9,7 +9,7 @@
     "   #     #    #     #    #     #          #    \n" \
     "   #     #    #     #    #     #    #     #    \n" \
     "   #     #    ######     ######      #####     \n"
-#define INV_MSG "mbbs> "
+#define AUTH_KEY "mbbs-client"
 
 #ifndef SESS_ARRAY_INIT_SIZE
 #define SESS_ARRAY_INIT_SIZE 32
@@ -24,7 +24,7 @@
 #endif
 
 #ifndef MAX_WRITE_BYTES
-#define MAX_WRITE_BYTES 1024
+#define MAX_WRITE_BYTES 4096
 #endif
 
 

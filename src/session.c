@@ -16,7 +16,6 @@ session *session_create(int cfd)
     sess->buf = buffer_create(SESS_BUF_DEF_SIZE);
     sess->fd = cfd;
     sess->logined = 0;
-    sess->written_bytes = 0;
     return sess;
 }
 
@@ -32,7 +31,6 @@ void session_delete(session *sess)
     sess->buf = NULL;
     sess->fd = -1;
     sess->logined = -1;
-    sess->written_bytes = -1;
 
     FREE(sess);
 }

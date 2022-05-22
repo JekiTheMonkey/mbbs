@@ -19,17 +19,22 @@
 #include <unistd.h>
 
 #define LOG_RET(code) do { LOG_L("\n"); return code; } while(0)
-#define ERR_TRY_AGAIN(sess, sst, code, msg) \
+#define ERR_TRY_AGAIN(sess, sst, code, clr_buf, msg) \
     do { \
+        if (clr_buf) \
+            buffer_clear(sess->buf); \
         session_send_str(sess, msg ". Try again.\n"); \
         sess->state = sst; \
         return code; \
     } while(0)
 
+#define DMD_SIL "DMD_SIL" /* Demand silence on client side - no invite msg */
 #define ASK_USR "Enter your username: "
 #define ASK_PWD "Enter your password: "
 #define CMD_LOG "login"
 #define CMD_REG "register"
+#define CMD_EXIT "close"
+#define TERM_MSG "Terminating own work..."
 #define CMD_HLP "help"
 #define HLP_MSG \
     "MBBS stands for Bulletin Board System. It's a server that allows users\n" \
@@ -39,9 +44,11 @@
     "message boards and via direct chatting.\n" \
     "\n" \
     "Available commands:\n" \
-    "   " CMD_LOG " \tLogin into account\n" \
-    "   " CMD_REG " \tRegister a new account\n" \
-    "   " CMD_HLP " \tSee this message"
+    "   " CMD_LOG  " \tLogin into account\n" \
+    "   " CMD_REG  " \tRegister a new account\n" \
+    "   " CMD_HLP  " \tSee this message\n" \
+    "   " CMD_EXIT " \tClose connection"
+#define UNK_MSG "mbbs: Unknown command. Try '" CMD_HLP
 
 volatile sig_atomic_t work;
 void sigint_handler(int sig_no)
@@ -110,13 +117,15 @@ void alloc_intro(server *serv, int intro_fd)
     serv->intro = buffer_create(size + 1);
 }
 
-void read_intro(server *serv, int intro_fd)
+int read_intro(server *serv, int intro_fd)
 {
-    int res = read(intro_fd, serv->intro->ptr, serv->intro->size);
+    buffer *buf = serv->intro;
+    int res = read(intro_fd, buf->ptr, buf->size);
     if (res == -1)
         PELOG_EX("Failed to read intro file");
     LOG("Read intro is '%d' bytes long\n", res);
-    memset(serv->intro->ptr + res, 0, 1); /* terminating zero */
+    memset(buf->ptr + res, 0, 1); /* terminating zero */
+    return res + 1;
 }
 
 void init_intro(server *serv)
@@ -129,7 +138,7 @@ void init_intro(server *serv)
         ELOG_EX("Failed to open file '%s'", path);
 
     alloc_intro(serv, fd);
-    read_intro(serv, fd);
+    serv->intro->used = read_intro(serv, fd);
 
     close(fd);
     FREE(path);
@@ -282,6 +291,7 @@ void set_fd(com_state state, int fd, fd_set *readfds, fd_set *writefds)
     switch (state)
     {
         /* Read states */
+        case sst_lsn_auth:
         case sst_lsn_req:
         case sst_lsn_usr:
         case sst_lsn_pwd:
@@ -290,7 +300,6 @@ void set_fd(com_state state, int fd, fd_set *readfds, fd_set *writefds)
         /* Write states */
         case sst_intro:
         case sst_help:
-        case sst_send_inv:
         case sst_ask_usr:
         case sst_ask_pwd:
             FD_SET(fd, writefds); break;
@@ -340,7 +349,7 @@ int mselect(const server *serv, fd_set *readfds, fd_set *writefds)
 
 int check_err(int code)
 {
-    return code == -1 && errno == EINTR; /* return 1 on error */
+    return code == -1 && errno != EINTR; /* return 1 on error */
 }
 
 int accept_client(int ls, struct sockaddr_in *addr)
@@ -379,7 +388,7 @@ session *add_session(server *serv, int cfd)
 
     assert(!sess_arr[index]);
     sess_arr[index] = session_create(cfd);
-    sess_arr[index]->state = sst_intro;
+    sess_arr[index]->state = sst_lsn_auth;
     sess_buf->used += sizeof(session *);
 
     LOG("New session has been created. Up sessions - '%lu'\n", index + 1);
@@ -398,7 +407,6 @@ void check_listen(server *serv, fd_set *readfds)
         LOG_RET();
     session *sess = add_session(serv, cfd);
     sess->addr = cli_addr;
-    UNUSED1(sess);
     LOG_L("\n");
 }
 
@@ -407,13 +415,15 @@ int was_signaled(int code)
     return code == -1 && errno == EINTR;
 }
 
-void find_lfcr(const buffer *buf, char **lf, char **cr)
+int control_buffer_fullness(session *sess)
 {
-    *lf = strnfind(buf->ptr, '\n', buf->used);
-    if (!lf)
-        return;
-    /* don't search for CR if there is no LF */
-    *cr= strnfind(buf->ptr, '\r', buf->used);
+    const buffer *buf = sess->buf;
+    if (buf->used != buf->size)
+        return 0;
+    LOG("Input line is too long, terminate connection with a client\n");
+    LOG("Your input line is too long, bye...\n");
+    sess->state = sst_err;
+    return 1;
 }
 
 int session_receive_data(session *sess)
@@ -425,7 +435,7 @@ int session_receive_data(session *sess)
     } while (was_signaled(res));
 
     if (res == -1)
-        ELOG_L("Failed to read");
+        PELOG("Failed to read");
     else if (res == 0)
         LOG("EOF has been read\n");
     if (res <= 0)
@@ -435,28 +445,25 @@ int session_receive_data(session *sess)
     }
 
     buf->used += res;
+    buf->last_read_bytes = res;
     LOG("'%d' bytes have been read\n", res);
     return res;
 }
 
-int session_send_data(session *sess, const char *str, size_t bytes)
+int session_send_data(session *sess, const void *data, size_t bytes)
 {
     int res;
     do {
-        res = write(sess->fd, str, bytes);
+        res = write(sess->fd, data, min(bytes, MAX_WRITE_BYTES));
     } while (was_signaled(res));
     LOG("'%d' bytes have been written\n", res);
 
     if (res == -1)
     {
         ELOG("Failed to write");
-        sess->state= sst_err;
+        sess->state = sst_err;
         return -1;
     }
-
-    sess->written_bytes += res;
-    if (res < MAX_WRITE_BYTES)
-        sess->written_bytes = 0;
     return res;
 }
 
@@ -465,82 +472,99 @@ int session_send_str(session *sess, const char *str)
     return session_send_data(sess, str, strlen(str));
 }
 
-unsigned get_str_number(buffer *buf)
+int session_upload_buffer(session *sess)
 {
-    unsigned res = 0, n = buf->used;
-    const char *ch_buf = (char *) buf->ptr;
-    for (; n; n--, ch_buf++)
-    {
-        if (*ch_buf == '\0')
-            res++;
-    }
-    return res;
+    return session_send_data(sess, sess->buf->ptr, sess->buf->used);
 }
 
-void str_buffer_move_left(buffer *buf, unsigned str_idx)
+#define STRNCMP(lhs, rhs, len) \
+    ((len) == sizeof((rhs)) - 1 && !strncmp(lhs, rhs, len))
+int handle_lsn_auth(server *serv, session *sess)
 {
-    const char *ch_buf = (char *) buf->ptr;
-    char *new_begin = strnfindnth(ch_buf, '\0', str_idx, buf->used);
-    assert(new_begin);
-    LOG("'%p' '%p'\n", (void *) ch_buf, (void *) new_begin);
-    const size_t diff = new_begin - ch_buf + 1;
-    LOG("Used '%lu'\n", buf->used);
-    memmove(buf->ptr, buf->ptr + diff, diff);
-    memset(buf->ptr + buf->used - diff + 1, 0, diff);
-    buf->used -= diff;
-    LOG("'%lu' bytes have been moved to left\n", diff);
-}
-
-void str_buffer_move_right(buffer *buf, unsigned str_idx)
-{
-    const char *ch_buf = (char *) buf->ptr;
-    const unsigned tot_str = get_str_number(buf);
-    assert(tot_str >= str_idx);
-    char *new_end = strnfindnth(ch_buf, '\0', tot_str - str_idx, buf->used);
-    assert(new_end);
-    const size_t diff = new_end - ch_buf;
-    LOG("Used '%lu'\n", buf->used);
-    memset(new_end, 0, buf->used - diff);
-    buf->used = diff;
-    LOG("'%lu' bytes have been moved from right\n", diff);
-}
-
-int buffer_try_move_left(buffer *buf)
-{
-    const char *nterm = strnfind((char *) buf->ptr, '\0', buf->used);
-    if (!nterm)
+    UNUSED1(serv);
+    if (sess->state != sst_lsn_auth)
         return 0;
-    str_buffer_move_left(buf, 1);
+
+    buffer *buf = sess->buf;
+    const char *auth = (char *) buf->ptr;
+    const unsigned len = buf->used;
+    LOG("Authorization key: '%.*s'\n", len, auth);
+
+    if (STRNCMP(auth, AUTH_KEY, len))
+        sess->state = sst_intro;
+    else
+        session_send_str(sess, "Wrong authorization key TODO Timeout\n");
+    buffer_clear(buf);
     return 1;
 }
 
-#define STRCMP(lhs, rhs) (len == sizeof(rhs) - 1 && !strcmp(lhs, rhs))
 int handle_lsn_req(server *serv, session *sess)
 {
     UNUSED1(serv);
     if (sess->state != sst_lsn_req)
         return 0;
 
-    const char *req = (char *) sess->buf->ptr;
-    LOG("Request: '%s'\n", req);
-    const unsigned len = strlen(req);
+    buffer *buf = sess->buf;
+    buffer_move_right(buf, 1); /* -lf */
+    const char *req = (char *) buf->ptr;
+    const unsigned len = buf->used;
+    LOG("Request: '%.*s'\n", len, req);
 
-    if (STRCMP(req, CMD_LOG))
+    if (STRNCMP(req, CMD_LOG, len))
     {
         sess->state = sst_ask_usr;
         sess->action = cac_log;
     }
-    else if (STRCMP(req, CMD_REG))
+    else if (STRNCMP(req, CMD_REG, len))
     {
         sess->state = sst_ask_usr;
         sess->action = cac_reg;
     }
-    else if (STRCMP(req, CMD_HLP))
+    else if (STRNCMP(req, CMD_EXIT, len))
+    {
+        session_send_str(sess, DMD_SIL TERM_MSG "\n");
+        sess->state = sst_disc;
+    }
+    else if (STRNCMP(req, CMD_HLP, len))
         sess->state = sst_help;
     else
-        session_send_str(sess, "mbbs: Unknown command. Try '"CMD_HLP"'\n");
-    str_buffer_move_right(sess->buf, 1); /* delete request text from buffer */
+        session_send_str(sess, UNK_MSG "\n");
+    buffer_clear(buf);
     return 1;
+}
+
+int check_username_len(unsigned n)
+{
+    if (n <= 3)
+        return 1;
+    else if (n > 64)
+        return 2;
+    return 0;
+}
+
+int check_username_chs(const char *usr, unsigned bytes)
+{
+    for (; bytes; bytes--, usr++)
+        if (!(*usr >= '!' && *usr <= '~'))
+            return 1;
+    return 0;
+}
+
+int check_username(session *sess)
+{
+    buffer *buf = sess->buf;
+    char *ch_buf = (char *) buf->ptr;
+    LOG("Given username: '%s'\n", ch_buf);
+    const unsigned len = buf->last_read_bytes - 1; /* -lf */
+    int res = check_username_len(len);
+    if (res == 1)
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Username is too short");
+    if (res == 2)
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Username is too long");
+    if (check_username_chs(ch_buf, len))
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1,
+            "Username contains unacceptable character");
+    return 0;
 }
 
 int handle_lsn_usr(server *serv, session *sess)
@@ -549,20 +573,12 @@ int handle_lsn_usr(server *serv, session *sess)
     if (sess->state != sst_lsn_usr)
         return 0;
 
-    const char *usr = (char *) sess->buf->ptr;
-    LOG("Given username: '%s'\n", usr);
-    const size_t len = strlen(usr);
-    if (len <= 3)
-    {
-        session_send_str(sess, "Username is too short. Try again.\n");
-        sess->state = sst_ask_usr;
-        str_buffer_move_right(sess->buf, 1); /* delete username from buffer */
-    }
+    buffer *buf = sess->buf;
+    memset(buf->ptr + buf->used - 1, 0, 1); /* lf = \0 */
+    if (check_username(sess))
+        return 1;
     else
-    {
         sess->state = sst_ask_pwd;
-        /* keep username string in buffer */
-    }
     return 1;
 }
 
@@ -570,24 +586,15 @@ int user_try_enter(session *sess, const user *orig_usr, user *input_usr)
 {
     LOG("\n");
     if (!orig_usr)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -1,
+        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1,
             "No user found with such username");
     if (strcmp(orig_usr->password, input_usr->password))
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -2, "Incorrect password");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, -2, 1, "Incorrect password");
     session_send_str(sess, "Successful login\n");
     sess->logined = 1;
-    sess->state = sst_send_inv;
+    sess->state = sst_lsn_req;
     sess->action = cac_unk;
     return 1;
-}
-
-int check_pwd(const char *pwd)
-{
-    if (strfind(pwd, ' '))
-        return -1;
-    if (strlen(pwd) <= 4)
-        return -2;
-    return 0;
 }
 
 int user_try_create(server *serv, session *sess, const user *found_usr,
@@ -595,20 +602,42 @@ int user_try_create(server *serv, session *sess, const user *found_usr,
 {
     LOG("\n");
     if (found_usr)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, "Username is already taken");
-    int res = check_pwd(input_usr->password);
-    if (res == -1)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -1,
-            "Password cannot contain a whitespace");
-    if (res == -2)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -2, "Password is too short");
-    session_send_str(sess, "Your account has been successfully registered.\n");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1, "Username is already taken");
     LOG("New user has registered - '%s'\n", input_usr->username);
     input_usr = user_create(input_usr->username, input_usr->password); /* duplicate */
     user_push_back(&serv->users, input_usr);
-    sess->state = sst_send_inv;
+    session_send_str(sess, "Your account has been successfully registered.\n");
+    sess->state = sst_lsn_req;
     sess->action = cac_unk;
     return 1;
+}
+
+int check_password_len(unsigned len)
+{
+    return check_username_len(len);
+}
+
+int check_password_chs(const char *pwd, unsigned bytes)
+{
+    return check_username_chs(pwd, bytes);
+}
+
+int check_password(session *sess)
+{
+    buffer *buf = sess->buf;
+    char *ch_buf = strfind((char *) sess->buf->ptr, '\0') + 1;
+    const unsigned len = buf->last_read_bytes - 1; /* -lf */
+    assert(ch_buf != (char *) 1);
+    LOG("Given password: '%s'\n", ch_buf);
+    int res = check_password_len(len);
+    if (res == 1)
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Password is too short");
+    if (res == 2)
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Password is too long");
+    if (check_password_chs(ch_buf, len))
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1,
+            "Password contains unacceptable character");
+    return 0;
 }
 
 int handle_lsn_pwd(server *serv, session *sess)
@@ -617,14 +646,16 @@ int handle_lsn_pwd(server *serv, session *sess)
         return 0;
 
     buffer *buf = sess->buf;
-    char *ch_buf = (char *) buf->ptr;
+    memset(buf->ptr + buf->used - 1, 0, 1); /* lf = \0 */
+    LOG("\n");
+    print_buf_bin(buf);
+    if (check_password(sess))
+        return 1;
 
     user usr, *found;
-    usr.username = ch_buf;
-    usr.password = strnfind(ch_buf, '\0', buf->used) + 1;
-    assert(usr.username);
+    usr.username = (char *) buf->ptr;
+    usr.password = strfind((char *) buf->ptr, '\0') + 1;
     assert(usr.password != (char *) 1);
-    LOG("Given password: '%s'\n", usr.password);
 
     found = user_find(serv->users, usr.username);
     assert(sess->action == cac_log || sess->action == cac_reg);
@@ -632,87 +663,54 @@ int handle_lsn_pwd(server *serv, session *sess)
         user_try_enter(sess, found, &usr);
     else
         user_try_create(serv, sess, found, &usr);
-    str_buffer_move_right(buf, 2); /* delete username and pwd from buffer */
     return 1;
 }
 
-void remove_lfcr(buffer *buf, unsigned n)
-{
-    char *base = (char *) buf->ptr + buf->used - n;
-    char *lf = strnfind(base, '\n', n);
-    if (!lf)
-        return;
-    char *cr = strnfind(base, '\r', n);
-    if (cr)
-        *cr = '\0';
-    *lf = '\0';
-    if (buf->ptr + buf->used - (void *) cr == 2)
-        buf->used--;
-    LOG("'%p' '%p'\n", (void *) lf, (void *) cr);
-    LOG("%s been removed from buffer\n",
-        lf && cr ? "LF and CR have" : lf ? "LF has" : "CR has");
-}
-
-/* wide write */
-/* For data that may not fit in a single packet */
-int handle_wwrite(session *sess, buffer *write_buf, com_state cur_sst,
-    com_state next_sst)
-{
-    size_t written_bytes = sess->written_bytes;
-    if (sess->state != cur_sst)
-        return 0;
-
-    assert(write_buf->size > written_bytes);
-    LOG("Written bytes so far '%lu', to write '%lu'\n",
-        written_bytes, write_buf->size - written_bytes);
-    int to_write = min(MAX_WRITE_BYTES, write_buf->size - written_bytes);
-    int res = session_send_data(sess, (char *) write_buf->ptr, to_write);
-    if (res == -1)
-        return 1;
-    if (res < MAX_WRITE_BYTES)
-        sess->state = next_sst;
-    return res;
-}
-
-/* short write */
-/* For data that will fit in a single packet */
-int handle_swrite(session *sess, const char *str, com_state cur_sst,
+int handle_str_write(session *sess, const char *str, com_state cur_sst,
     com_state next_sst)
 {
     if (sess->state != cur_sst)
         return 0;
+    sess->state = next_sst;
+    return session_send_data(sess, str, strlen(str));
+}
 
-    int len = strlen(str);
-    assert(len <= MAX_WRITE_BYTES);
-    int res = session_send_data(sess, str, len);
-
-    if (res == -1)
-        return 1;
-    if (res < MAX_WRITE_BYTES)
-        sess->state = next_sst;
-    return res;
+int handle_buf_write(session *sess, const buffer *buf, com_state cur_sst,
+    com_state next_sst)
+{
+    if (sess->state != cur_sst)
+        return 0;
+    sess->state = next_sst;
+    return session_send_data(sess, buf->ptr, buf->used);
 }
 
 #define _HDL_RES(code) \
     do { \
+        if (code) \
+            LOG("Return value: '%d'\n", code); \
         if (code == -1) \
             LOG_RET(-1); /* disconnect */ \
         else if (code > 0) \
             LOG_RET(1); \
     } while (0)
 
-#define HDL_WWRITE(sess, buf, cur_sst, next_sst) \
-    _HDL_RES(handle_wwrite(sess, buf, cur_sst, next_sst))
-
-#define HDL_SWRITE(sess, str, cur_sst, next_sst) \
-    _HDL_RES(handle_swrite(sess, str, cur_sst, next_sst))
+#define HDL_LSN(lsn_to, serv, sess) \
+    do { \
+        res = handle_lsn_ ##lsn_to (serv, sess); \
+        _HDL_RES(res); \
+    } while (0)
 
 int handle_states(server *serv, session *sess)
 {
+    int res;
+    /* TOFIX (maybe I just do something wrong) */
+    /* for some reason macro processor can't implictly take AND REMEMBER
+       an anonym variable, so return value is saves into 'res' variable instead */
     LOG_E("\n");
-    handle_lsn_req(serv, sess);
-    handle_lsn_usr(serv, sess);
-    handle_lsn_pwd(serv, sess);
+    HDL_LSN(auth, serv, sess);
+    HDL_LSN(req, serv, sess);
+    HDL_LSN(usr, serv, sess);
+    HDL_LSN(pwd, serv, sess);
     LOG_L("\n");
     return 1;
 }
@@ -724,47 +722,44 @@ int handle_client_read(server *serv, session *sess, fd_set *readfds)
 
     LOG_E("\n");
     buffer *buf = sess->buf;
-    const com_state state = sess->state;
-    const unsigned used = buf->used;
 
-    int res = session_receive_data(sess);
-    if (res <= 0)
+    if (session_receive_data(sess) <= 0)
         LOG_RET(-1);
-    remove_lfcr(buf, res);
     print_buf_bin(buf);
 
-    /* Check if read data has a terminating zero */
-    const char *lf = strnfindnth((char *) buf->ptr + used, '\0', 1, res);
-    if (!lf)
-        LOG_RET(1);
-
     handle_states(serv, sess);
-    if (buf->used == buf->size)
-    {
-        session_send_str(sess, "Your input text is too long, bye...\n");
-        sess->state = sst_err;
+    if (control_buffer_fullness(sess))
         LOG_RET(-1);
-    }
-    if (sess->state == state && state == sst_lsn_req)
-        sess->state = sst_send_inv;
     LOG_L("\n");
     return 1;
 }
+
+#define HDL_BWRITE(sess, buf, cur_sst, next_sst) \
+    do { \
+        res = handle_buf_write(sess, buf, cur_sst, next_sst); \
+        _HDL_RES(res); \
+    } while (0)
+#define HDL_SWRITE(sess, str, cur_sst, next_sst) \
+    do { \
+        res = handle_str_write(sess, str, cur_sst, next_sst); \
+        _HDL_RES(res); \
+    } while (0)
 
 int handle_client_write(server *serv, session *sess, fd_set *writefds)
 {
     if (!FD_ISSET(sess->fd, writefds))
         return 0;
-
+    int res;
+    /* TOFIX (maybe I just do something wrong) */
+    /* for some reason macro processor can't implictly take AND REMEMBER
+       an anonym variable, so return value is saves into 'res' variable instead */
     LOG_E("\n");
-    HDL_WWRITE(sess, serv->intro,            sst_intro,     sst_send_inv);
-    HDL_SWRITE(sess, HLP_MSG "\n",           sst_help,      sst_send_inv);
-    HDL_SWRITE(sess, INV_MSG,                sst_send_inv,  sst_lsn_req);
-    HDL_SWRITE(sess, ASK_USR,                sst_ask_usr,   sst_lsn_usr);
-    HDL_SWRITE(sess, ASK_PWD,                sst_ask_pwd,   sst_lsn_pwd);
-    LOG_L("\n");
-
-    return 1;
+    HDL_BWRITE(sess, serv->intro,       sst_intro,     sst_lsn_req);
+    HDL_SWRITE(sess, HLP_MSG "\n",      sst_help,      sst_lsn_req);
+    HDL_SWRITE(sess, DMD_SIL ASK_USR,   sst_ask_usr,   sst_lsn_usr);
+    HDL_SWRITE(sess, DMD_SIL ASK_PWD,   sst_ask_pwd,   sst_lsn_pwd);
+    LOG("An unhandled communication state has been found\n");
+    exit(1);
 }
 
 void move_sess_ptrs(buffer *sess_buf, void *base_ptr)
@@ -794,34 +789,37 @@ void terminate_session(buffer *sess_buf, session **sess)
 void check_io(server *serv, fd_set *readfds, fd_set *writefds)
 {
     LOG_E("\n");
+    /* TODO work with it as a buffer instead of ptr to ptr */
     session **sess_arr = (session **) serv->sess_buf->ptr;
     while (*sess_arr)
     {
+        session *sess = *sess_arr;
         LOG("Iteration for '%p'\n", (void *) sess_arr);
-        /* -1 = error | 0 = didn't do anything | 1 = done */
-        if (handle_client_read(serv, *sess_arr, readfds) == -1||
-            handle_client_write(serv, *sess_arr, writefds) == -1)
+        if (handle_client_read(serv, sess, readfds) ||
+            handle_client_write(serv, sess, writefds))
         {
-            terminate_session(serv->sess_buf, sess_arr);
-            continue;
+            if (sess->state == sst_disc || sess->state == sst_err)
+            {
+                terminate_session(serv->sess_buf, sess_arr);
+                continue;
+            }
         }
         sess_arr++;
     }
     LOG_L("\n");
 }
 
-int handle_event(int code, server *serv, fd_set *readfds, fd_set *writefds)
+int handle_events(int code, server *serv, fd_set *readfds, fd_set *writefds)
 {
     LOG_E("\n");
     if (was_signaled(code))
         LOG_RET(0);
     else if (check_err(code))
-        LOG_RET(1);
+        LOG_RET(-1);
     check_listen(serv, readfds);
     check_io(serv, readfds, writefds);
-
     LOG_L("\n");
-    return 0;
+    return 1;
 }
 
 int serv_start(server *serv)
@@ -836,11 +834,11 @@ int serv_start(server *serv)
         LOG("Select has returned '%d'\n", res);
 
         /* Handle events */
-        if (handle_event(res, serv, &readfds, &writefds))
-            LOG_RET(1);
-        printf("\n\n");
+        if (handle_events(res, serv, &readfds, &writefds) == -1)
+            LOG_RET(-1);
+        write(1, "\n\n", 2);
     }
-    printf("\nTerminating own work...\n");
+    write(1, "\n" TERM_MSG "\n", sizeof(TERM_MSG) + 2);
     save_db(serv);
     close(serv->db_fd);
     LOG_L("\n");

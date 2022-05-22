@@ -21,13 +21,17 @@
 
 #ifdef _TRACE
     /* Raw trace logging macro, no file information is provided */
-    #define RLOG(...) do { _LOG_PRINT_TABS(); _LOG_IMPL(__VA_ARGS__); } while (0)
-
-    /* Regular trace logging macro */
-    #define _LOG_IMPL(SIGN, ...) \
+    #define RLOG(...) \
         do { \
             _LOG_PRINT_TABS(); \
-            _LOG_PRINT_INFO(SIGN); \
+            _LOG_IMPL(__VA_ARGS__); \
+        } while (0)
+
+    /* Regular trace logging macro */
+    #define _LOG_IMPL(sign, ...) \
+        do { \
+            _LOG_PRINT_TABS(); \
+            _LOG_PRINT_INFO(sign); \
             _RLOG_IMPL(__VA_ARGS__); \
         } while (0)
 
@@ -83,10 +87,11 @@
             _PLOG_IMPL(_LOG_OUT_SIGN, __VA_ARGS__); \
         } while (0)
 
-    #define _ELOG_IMPL(SIGN, ...) \
+    /* Log a formatted string with a stdlib's error message afterwards */
+    #define _ELOG_IMPL(sign, ...) \
         do { \
             _LOG_PRINT_TABS(); \
-            _LOG_PRINT_INFO(SIGN); \
+            _LOG_PRINT_INFO(sign); \
             _RLOG_IMPL(__VA_ARGS__); \
             _RLOG_IMPL(": %s\n", strerror(errno)); \
         } while (0)
@@ -103,7 +108,11 @@
             _ELOG_IMPL(_LOG_OUT_SIGN, __VA_ARGS__); \
         } while (0)
     #define ELOG_EX(...) do { ELOG(__VA_ARGS__); exit(1); } while(0)
-    #define PELOG(msg) ELOG(msg);
+
+    /* Log a string with stdlib's error message afterwards */
+    #define PELOG(msg) ELOG(msg)
+    #define PELOG_E(msg) ELOG_E(msg)
+    #define PELOG_L(msg) ELOG_L(msg)
     #define PELOG_EX(msg) do { ELOG(msg); exit(1); } while(0)
 
 
@@ -146,7 +155,9 @@
     #define ELOG_E(...)                 ALL_UNUSED(__VA_ARGS__)
     #define ELOG_L(...)                 ALL_UNUSED(__VA_ARGS__)
     #define ELOG_EX(...)                ALL_UNUSED(__VA_ARGS__)
-    #define PELOG(msg)         perror(msg);
+    #define PELOG(msg)         perror(msg)
+    #define PELOG_E(msg)       PELOG(msg)
+    #define PELOG_L(msg)       PELOG(msg)
     #define PELOG_EX(msg) do { perror(msg); exit(1); } while(0)
 
     #define LOG_CFNPP(ptr)     do { assert(ptr); } while (0)

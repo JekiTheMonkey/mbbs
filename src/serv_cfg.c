@@ -56,8 +56,8 @@ void init_addr(serv_cfg *cfg)
 {
     struct sockaddr_in *addr = &cfg->addr;
     addr->sin_family = AF_INET;
-    addr->sin_addr.s_addr = htonl(inet_addr(cfg->ip_s));
     addr->sin_port = htons(atoi(cfg->port_s));
+    addr->sin_addr.s_addr = htonl(inet_addr(cfg->ip_s));
     LOG("Server config's address has been initiliazed - '%s::%s'\n",
         cfg->ip_s, cfg->port_s);
 }
