@@ -37,6 +37,7 @@ enum com_state {
     sst_help,                           /* show help */
     sst_ask_usr,                        /* ask username */
     sst_ask_pwd,                        /* ask password */
+    sst_upload,                         /* send a file to user */
 };
 
 /* cac - Communication ACtion */
@@ -46,17 +47,38 @@ enum com_action {
     cac_reg,                            /* register */
 };
 
-struct session
+enum permissions {
+    perms_upload        = 1 << 0,       /* upload files */
+    perms_remove        = 1 << 1,       /* remove files */
+    perms_edit_desc     = 1 << 2,       /* edit descriptions */
+};
+
+enum sys_file_zones {
+    description = 1,                    /* file description */
+    owner,                              /* owner username */
+    last_edit,                          /* last edit date and time */
+    is_everyone,                        /* is everyne are allowed to download a file */
+    whitelist                           /* whitelist to download a file users */
+};
+
+struct sess_t
 {
     com_state state;
     com_action action;
     struct sockaddr_in *addr;
-    int fd;
-    int logined;
-    buffer *buf;
+    int cfd; /* client file descriptor */
+    int udfd; /* upload/download file descriptor */
+    int perms;
+    user_t *usr;
+    buf_t *buf;
 };
 
-session *session_create(int cfd);
-void session_delete(session *item);
+sess_t *session_create(int cfd);
+void session_delete(sess_t *sess);
+int session_send_data(sess_t *sess, const void *data, size_t bytes);
+int session_send_str(sess_t *sess, const char *str);
+int session_upload_buffer(sess_t *sess);
+int session_receive_data(sess_t *sess);
+int session_open_file(sess_t *sess, const char *path, int flags);
 
 #endif /* SESSION_H */

@@ -10,13 +10,16 @@
     "   #     #    #     #    #     #    #     #    \n" \
     "   #     #    ######     ######      #####     \n"
 #define AUTH_KEY "mbbs-client"
+#define SYS_FILE_SPC '#'
+
+#define MAX_FILE_LEN 128
 
 #ifndef SESS_ARRAY_INIT_SIZE
 #define SESS_ARRAY_INIT_SIZE 32
 #endif
 
 #ifndef SESS_BUF_DEF_SIZE
-#define SESS_BUF_DEF_SIZE 4092
+#define SESS_BUF_DEF_SIZE 4096
 #endif
 
 #ifndef TIME_DIFF_TO_TERMINATE
@@ -28,13 +31,15 @@
 #endif
 
 
-typedef struct user user;
-typedef struct buffer buffer;
-typedef struct serv_cfg serv_cfg;
-typedef struct server server;
-typedef struct session session;
+typedef struct user_t user_t;
+typedef struct buf_t buf_t;
+typedef struct serv_cfg_t serv_cfg_t;
+typedef struct serv_t serv_t;
+typedef struct sess_t sess_t;
 typedef enum com_state com_state;
 typedef enum com_action com_action;
+typedef enum permissions permissions;
+typedef enum sys_file_zones sys_file_zones;
 
 #define DEF_IP "0.0.0.0"
 #define DEF_PORT "6666"

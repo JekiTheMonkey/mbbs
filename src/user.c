@@ -6,9 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-user *user_create(const char *username, const char *password)
+user_t *user_create(const char *username, const char *password)
 {
-    user *item = (user *) malloc(sizeof(user));
+    user_t *item = (user_t *) malloc(sizeof(user_t));
     ALOG(item);
     item->username = strdup((char *) username);
     item->password = strdup((char *) password);
@@ -16,28 +16,28 @@ user *user_create(const char *username, const char *password)
     return item;
 }
 
-void user_push_back(user **head, user *item)
+void user_push_back(user_t **head, user_t *user)
 {
     if (!*head)
     {
-        *head = item;
+        *head = user;
         return;
     }
     else
-        user_push_back(&(*head)->next, item);
+        user_push_back(&(*head)->next, user);
 }
 
-user *user_find(const user *head, const char *username)
+user_t *user_find(const user_t *head, const char *username)
 {
     if (!head)
         return NULL;
     if (!strcmp(head->username, username))
-        return (user *) head;
+        return (user_t *) head;
     else
-        return user_find((user *) head->next, username);
+        return user_find((user_t *) head->next, username);
 }
 
-void user_print(const user *head)
+void user_print(const user_t *head)
 {
     if (!head)
         return;
@@ -45,25 +45,25 @@ void user_print(const user *head)
     user_print(head->next);
 }
 
-void user_remove(user **head, user *item)
+void user_remove(user_t **head, user_t *user)
 {
     if (!*head)
         return;
-    if ((*head)->next != item)
-        user_remove(&(*head)->next, item);
+    if ((*head)->next != user)
+        user_remove(&(*head)->next, user);
     else
     {
-        (*head)->next = item->next;
-        user_delete(item);
+        (*head)->next = user->next;
+        user_delete(user);
     }
 }
 
-void user_delete(user *usr)
+void user_delete(user_t *user)
 {
     /* Avoid user data be inside RAM after it has been used */
-    memset(usr->username, 0, strlen(usr->username));
-    memset(usr->password, 0, strlen(usr->password));
-    FREE(usr->username);
-    FREE(usr->password);
-    FREE(usr);
+    memset(user->username, 0, strlen(user->username));
+    memset(user->password, 0, strlen(user->password));
+    FREE(user->username);
+    FREE(user->password);
+    FREE(user);
 }

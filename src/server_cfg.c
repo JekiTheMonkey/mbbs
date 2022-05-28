@@ -1,4 +1,4 @@
-#include "serv_cfg.h"
+#include "server_cfg.h"
 #include "def.h"
 #include "log.h"
 #include "utility.h"
@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void zero_cfg(serv_cfg *cfg)
+void zero_cfg(serv_cfg_t *cfg)
 {
     cfg->ip_s = NULL;
     cfg->port_s = NULL;
@@ -16,7 +16,7 @@ void zero_cfg(serv_cfg *cfg)
     LOG("Server config has been inizialized with null values\n");
 }
 
-void handle_argv(serv_cfg *cfg, char **argv)
+void handle_argv(serv_cfg_t *cfg, char **argv)
 {
     char **it = (char **) &cfg->ip_s; /* 3 ptrs in cfg are alined */
     assert((void *) &cfg->db_dir - (void *) &cfg->ip_s == sizeof(void *) * 2);
@@ -32,7 +32,7 @@ void handle_argv(serv_cfg *cfg, char **argv)
     LOG("Server config has read as many arguments as provided\n");
 }
 
-void init_null_vals(serv_cfg *cfg)
+void init_null_vals(serv_cfg_t *cfg)
 {
     if (!cfg->ip_s)
     {
@@ -52,7 +52,7 @@ void init_null_vals(serv_cfg *cfg)
     }
 }
 
-void init_addr(serv_cfg *cfg)
+void init_addr(serv_cfg_t *cfg)
 {
     struct sockaddr_in *addr = &cfg->addr;
     addr->sin_family = AF_INET;
@@ -62,7 +62,7 @@ void init_addr(serv_cfg *cfg)
         cfg->ip_s, cfg->port_s);
 }
 
-void init_cfg(serv_cfg *cfg, char **argv)
+void init_cfg(serv_cfg_t *cfg, char **argv)
 {
     LOG_E("\n");
     zero_cfg(cfg);

@@ -2,7 +2,6 @@
 #define SERVER_H
 
 #include "def.h"
-#include "serv_cfg.h"
 
 /*
  * Server structure contains its own config, listening socket, database FD,
@@ -13,17 +12,17 @@
  * and database.
 */
 
-struct server
+struct serv_t
 {
-    serv_cfg *cfg;
+    serv_cfg_t *cfg;
     int ls;
     int db_fd;
-    user *users;
-    buffer *sess_buf;
-    buffer *intro;
+    user_t *users;
+    buf_t *sess_buf;
+    buf_t *intro;
 };
 
-int serv_init(server *serv, char **argv);
-int serv_start(server *serv);
+int serv_init(serv_t *serv, char **argv);
+int serv_start(serv_t *serv);
 
 #endif /* SERVER_H */

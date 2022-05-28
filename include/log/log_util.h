@@ -11,7 +11,7 @@ extern int tabs, _log_local_n;
     for (_log_local_n = 0; _log_local_n < tabs; _log_local_n++) _RLOG_IMPL(_TAB)
 #define _LOG_PRINT_INFO(sign) \
     _RLOG_IMPL("%s: %d " sign " %s() ", EXEC_INFO)
-#define _LOG__LOG_PRINT_PINFO(sign) \
+#define _LOG_PRINT_PINFO(sign) \
     _RLOG_IMPL("%s: %d " sign " %s() [PID: %d] ", EXEC_PINFO)
 
 /* Entrance/leave/stay signs */

@@ -9,7 +9,7 @@
 int main(int argc, char **argv)
 {
     (void) argc;
-    server serv;
+    serv_t serv;
     serv_init(&serv, argv);
     return serv_start(&serv);
 }
