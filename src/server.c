@@ -602,10 +602,14 @@ int handle_list(DIR *dir, buf_t *buf, unsigned page)
     for (; to_skip && (info = readdir(dir)); to_skip--)
         {   }
     if (to_skip)
+<<<<<<< HEAD
     {
         LOG("Passed page is too big\n");
         return -1; /* page too big */
     }
+=======
+        return -1; /* page too big */
+>>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
 
     unsigned rem = LIST_ELEMENTS;
     unsigned i = 1;
@@ -623,13 +627,21 @@ int handle_list(DIR *dir, buf_t *buf, unsigned page)
     return 1;
 }
 
+<<<<<<< HEAD
 int list_get_argument(sess_t *sess)
+=======
+unsigned list_get_argument(sess_t *sess)
+>>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
 {
     const buf_t *buf = sess->buf;
     const char *str = (char *) buf->ptr + sizeof(CMD_LST);
     char *endptr = (char *) str + (buf->used + ((void *) str - buf->ptr));
     int res = strtol(str, &endptr, 10);
+<<<<<<< HEAD
     if (endptr == str || *endptr != '\0')
+=======
+    if (endptr == str || *endptr != '\0' || res == 0)
+>>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
     {
         session_send_str(sess, LST_USG "\n");
         return 0;
@@ -645,6 +657,7 @@ int handle_req_list(serv_t *serv, sess_t *sess)
         return 0;
     LOG("Use this handle...\n");
     buffer_append(buf, "\0", 1);
+<<<<<<< HEAD
     const int page = list_get_argument(sess);
     if (page == 0)
         session_send_str(sess, LST_IPG "\n");
@@ -653,6 +666,14 @@ int handle_req_list(serv_t *serv, sess_t *sess)
     buffer_clear(buf); /* buffer will be used in handle_list */
     int res = handle_list(serv->db_dir, sess->buf, page);
     if (res != -1)
+=======
+    const unsigned page = list_get_argument(sess);
+    if (!page)
+        return -1;
+    buffer_clear(buf); /* buffer will be used in handle_list */
+    int res = handle_list(serv->db_dir, sess->buf, page);
+    if (res)
+>>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
         session_upload_buffer(sess);
     else /* TODO Improve error message by including maximum page number */
         session_send_str(sess, LST_IPG "\n");
