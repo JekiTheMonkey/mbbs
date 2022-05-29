@@ -1,6 +1,13 @@
 #ifndef DEF_H
 #define DEF_H
 
+#include <limits.h> /* NAME_MAX */
+#include <stdio.h>
+
+#ifndef NAME_MAX
+    #define NAME_MAX 255
+#endif
+
 #define LOGO \
     "   #     #    ######     ######      #####     \n" \
     "   ##   ##    #     #    #     #    #     #    \n" \
@@ -12,22 +19,38 @@
 #define AUTH_KEY "mbbs-client"
 #define SYS_FILE_SPC '#'
 
-#define MAX_FILE_LEN 128
+#define MAX_FILE_LEN 256
 
 #ifndef SESS_ARRAY_INIT_SIZE
-#define SESS_ARRAY_INIT_SIZE 32
+    #define SESS_ARRAY_INIT_SIZE 32
 #endif
 
-#ifndef SESS_BUF_DEF_SIZE
-#define SESS_BUF_DEF_SIZE 4096
+#ifndef SESS_BUF_SIZE
+    #define SESS_BUF_SIZE 4096
+#endif
+
+#define LIST_ELEMENTS_DEF 20
+#define LIST_ELEMENTS_MAX SESS_BUF_SIZE / (NAME_MAX + 10)
+    /* +10 is for some extra data in each list element */
+
+#ifndef LIST_ELEMENTS
+    #if LIST_ELEMENTS_MAX > LIST_ELEMENTS_DEF
+        #define LIST_ELEMENTS LIST_ELEMENTS_DEF
+    #else
+        #define LIST_ELEMENTS LIST_ELEMENTS_MAX
+    #endif
+#else
+    #if LIST_ELEMENTS > LIST_ELEMENTS_MAX
+        #error "LIST_ELEMENTS is too big, try a smaller value instead"
+    #endif
 #endif
 
 #ifndef TIME_DIFF_TO_TERMINATE
-#define TIME_DIFF_TO_TERMINATE 5.0
+    #define TIME_DIFF_TO_TERMINATE 5.0
 #endif
 
 #ifndef MAX_WRITE_BYTES
-#define MAX_WRITE_BYTES 4096
+    #define MAX_WRITE_BYTES 4096
 #endif
 
 
