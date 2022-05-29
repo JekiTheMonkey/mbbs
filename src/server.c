@@ -18,14 +18,15 @@
 #include <time.h>
 #include <unistd.h>
 
-/* ############### Server related strings ############### */
-/* Commands */
+/* ######################### Server related strings ######################### */
+/* Service commands */
 #define CMD_LOG  "login"
 #define CMD_REG  "register"
 #define CMD_DOW  "download"
 #define CMD_EXIT "close"
 #define CMD_HELP  "help"
 
+/* ##################### Client & Server related strings #################### */
 /* Messages to send in dialog */
 #define HLP_MSG \
     "MBBS stands for Bulletin Board System. It's a server that allows users\n" \
@@ -40,26 +41,42 @@
     "   " CMD_DOW  " \tDownload a file\n" \
     "   " CMD_HELP " \tSee this message\n" \
     "   " CMD_EXIT " \tClose connection"
+
 #define USR_ASK "Enter your username: "
-#define PWD_ASK "Enter your password: "
 #define USR_2LN "Username too long"
 #define USR_2SH "Username too short"
+#define USR_UCH "Username contains unacceptable character"
+#define USR_TKN "Username is already taken"
+#define USR_NFN "No user found with such username"
+
+#define PWD_ASK "Enter your password: "
 #define PWD_2LN "Password too long"
 #define PWD_2SH "Password too short"
+#define PWD_UCH "Password contains unacceptable character"
+#define PWD_INC "Incorrect password"
+
 #define REG_SUC "Your account has been successfully registered"
 #define LOG_SUC "Successful login"
+
+#define DOW_USG "Usage: download <file> <destination>"
+#define DOW_2LN "Error: Input filename is too long"
+#define DOW_UDR "Error: Input filename contains an underscore as the first " \
+    "character"
+#define FIL_NEX "Error: File does not exist"
+
 #define TERM_MSG "Terminating own work..."
 #define LIN_2LN "Your input line is too long, bye..."
 #define WRN_CLI "Only MBBS Client must be used to connect to MBBS Server"
 #define UNK_MSG "mbbs: Unknown command. Try '" CMD_HELP "'"
 
-/* ############### Client & Server related strings ############### */
+/* --- System commands --- */
 /* Server messages */
 #define DMD_SIL "DMD_SIL" /* Demand silence on client side - no invite msg */
-#define ALW_UPL "ALW_UPL" /* Allow send file to server */
-#define ALW_DOW "ALW_DOW" /* Allow get file from server */
+#define DOW_DET "DOW_DET" /* Download file's details */
 /* Client messages */
 #define DOW_ACC "DOW_ACC" /* Client accepts to download a file */
+
+/* ########################################################################## */
 
 #define CMDMEMCMP(data, cmd) (memcmp(data, cmd, sizeof(cmd) - 1))
 #define CMDLENCMP(len, cmd) (len == sizeof(cmd) - 1)
@@ -212,7 +229,7 @@ void read_db(serv_t *serv)
         while ((line_r_it = strnfind(line_l_it, '\n', occupied)))
         {
             linelen = line_r_it - line_l_it;
-            occupied -= linelen + 1; /* + 1 due trailing lf  */
+            occupied -= linelen + 1; /* trailing lf  */
 
             usr_p = line_l_it;
             pwd_p = strnfind(line_l_it, ' ', linelen) + 1;
@@ -507,20 +524,22 @@ int download_file_checks(sess_t *sess)
     const unsigned cmd_len = sizeof(CMD_DOW) - 1;
     const char *path = (char *) buf->ptr + cmd_len + 1;
     if (req_len == cmd_len)
-        HDL_ERR(sess, "Usage: download <file>");
+        HDL_ERR(sess, DOW_USG);
     if (req_len - cmd_len - 1 > MAX_FILE_LEN)
-        HDL_ERR(sess, "Error: Input filename is too long");
+        HDL_ERR(sess, DOW_2LN);
     if (*path == '_')
-        HDL_ERR(sess, "Error: Input filename contains an underscore as the "
-            "first character");
+        HDL_ERR(sess, DOW_UDR);
 
-    buffer_append(buf, "\0", 1);
+    buffer_append(buf, "\0", 1); /* make act like a string */
     LOG("File: '%s'\n", path);
     int fd = open_file(path, O_RDONLY, 0);
     if (fd == -1)
-        HDL_ERR(sess, "Error: File does not exist");
+        HDL_ERR(sess, FIL_NEX);
 
-    /* TODO Implement some special controls */
+    /*
+     * TODO Implement some special controls
+     *             \/ \/ \/
+     */
     /* if (!file_exists(path)) */
     /*     HDL_ERR(sess, "Error: File does not exist"); */
     /* int fd = session_open_file(sess, path, O_RDONLY); */
@@ -543,7 +562,7 @@ int handle_req_download(serv_t *serv, sess_t *sess)
     const size_t size = get_file_len(sess->udfd);
     LOG("File size: %lu\n", size);
     assert(buf->size > 64);
-    buf->used = sprintf((char *) buf->ptr, ALW_DOW "%lu", size);
+    buf->used = sprintf((char *) buf->ptr, DOW_DET "%lu", size);
 
     session_upload_buffer(sess);
     sess->state = sst_lsn_req;
@@ -635,18 +654,17 @@ int check_username_chs(const char *usr, unsigned bytes)
 
 int check_username(sess_t *sess)
 {
-    buf_t *buf = sess->buf;
-    char *username = (char *) buf->ptr;
+    const buf_t *buf = sess->buf;
+    const char *username = (char *) buf->ptr;
     LOG("Given username: '%s'\n", username);
-    const unsigned len = buf->last_read_bytes - 1; /* -lf */
+    const unsigned len = buf->last_read_bytes;
     int res = check_username_len(len);
     if (res == 1)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Username is too short");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, USR_2SH);
     if (res == 2)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Username is too long");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, USR_2LN);
     if (check_username_chs(username, len))
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1,
-            "Username contains unacceptable character");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, USR_UCH);
     return 0;
 }
 
@@ -668,10 +686,9 @@ int user_try_enter(sess_t *sess, user_t *orig_usr, const user_t *input_usr)
 {
     LOG("\n");
     if (!orig_usr)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1,
-            "No user found with such username");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1, USR_NFN);
     if (strcmp(orig_usr->password, input_usr->password))
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -2, 1, "Incorrect password");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, -2, 1, PWD_INC);
     session_send_str(sess, LOG_SUC "\n");
     sess->usr = orig_usr;
     sess->state = sst_lsn_req;
@@ -684,9 +701,10 @@ int user_try_create(serv_t *serv, sess_t *sess, const user_t *found_usr,
 {
     LOG("\n");
     if (found_usr)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1, "Username is already taken");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1, USR_TKN);
     LOG("New user has registered - '%s'\n", input_usr->username);
-    input_usr = user_create(input_usr->username, input_usr->password); /* duplicate */
+    input_usr =
+        user_create(input_usr->username, input_usr->password); /* duplicate */
     user_push_back(&serv->users, input_usr);
     session_send_str(sess, REG_SUC "\n");
     sess->state = sst_lsn_req;
@@ -714,12 +732,11 @@ int check_password(sess_t *sess)
     LOG("Given password: '%s'\n", password);
     int res = check_password_len(len);
     if (res == 1)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Password is too short");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, PWD_2SH);
     if (res == 2)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, "Password is too long");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, PWD_2LN);
     if (check_password_chs(password, len))
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1,
-            "Password contains unacceptable character");
+        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, PWD_UCH);
     return 0;
 }
 
@@ -903,7 +920,9 @@ void terminate_session(buf_t *sess_buf, sess_t **sess)
 void check_io(serv_t *serv, fd_set *readfds, fd_set *writefds)
 {
     LOG_E("\n");
-    /* TODO work with it as a buffer instead of ptr to ptr */
+    /*
+     * TODO Work with it as a buffer instead of ptr to ptr
+     */
     sess_t **sess_arr = (sess_t **) serv->sess_buf->ptr;
     while (*sess_arr)
     {
