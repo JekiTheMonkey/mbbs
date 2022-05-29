@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE /* seekdir */
 #include "buffer.h"
 #include "log.h"
 #include "server_cfg.h"
@@ -6,6 +7,7 @@
 #include "user.h"
 #include "utility.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -23,11 +25,14 @@
 #define CMD_LOG  "login"
 #define CMD_REG  "register"
 #define CMD_DOW  "download"
+#define CMD_LST  "list"
 #define CMD_EXIT "close"
-#define CMD_HELP  "help"
+#define CMD_HELP "help"
 
 /* ##################### Client & Server related strings #################### */
 /* Messages to send in dialog */
+#define ERR "Error: "
+#define USG "Usage: "
 #define HLP_MSG \
     "MBBS stands for Bulletin Board System. It's a server that allows users\n" \
     "to connect to the system using a terminal program such as telnet. Once\n" \
@@ -39,6 +44,7 @@
     "   " CMD_LOG  " \tLogin into account\n" \
     "   " CMD_REG  " \tRegister a new account\n" \
     "   " CMD_DOW  " \tDownload a file\n" \
+    "   " CMD_LST  " \tList available files\n" \
     "   " CMD_HELP " \tSee this message\n" \
     "   " CMD_EXIT " \tClose connection"
 
@@ -58,11 +64,14 @@
 #define REG_SUC "Your account has been successfully registered"
 #define LOG_SUC "Successful login"
 
-#define DOW_USG "Usage: download <file> <destination>"
-#define DOW_2LN "Error: Input filename is too long"
-#define DOW_UDR "Error: Input filename contains an underscore as the first " \
+#define DOW_USG USG "download <file> <destination>"
+#define DOW_2LN ERR "Input filename is too long"
+#define DOW_UDR ERR "Input filename contains an underscore as the first " \
     "character"
-#define FIL_NEX "Error: File does not exist"
+#define FIL_NEX ERR "File does not exist"
+
+#define LST_USG USG "list <page-number>"
+#define LST_IPG ERR "Invalid page"
 
 #define TERM_MSG "Terminating own work..."
 #define LIN_2LN "Your input line is too long, bye..."
@@ -292,6 +301,13 @@ void change_root_dir(serv_t *serv)
         PELOG("Failed to change root directory");
 }
 
+void open_db_dir(serv_t *serv)
+{
+    serv->db_dir = opendir(".");
+    if (!serv->db_dir)
+        PELOG_EX("Failed to open database directory");
+}
+
 int serv_init(serv_t *serv, char **argv)
 {
     LOG_E("\n");
@@ -307,6 +323,7 @@ int serv_init(serv_t *serv, char **argv)
     serv->ls = create_server_socket(serv->cfg);
     init_db(serv);
     init_sess_buf(serv);
+    open_db_dir(serv);
 
     LOG_L("Server has been initilized successfully\n");
     return 1;
@@ -569,6 +586,75 @@ int handle_req_download(serv_t *serv, sess_t *sess)
     return 1;
 }
 
+int list_is_to_skip(const char *filename)
+{
+    return
+        filename[0] == '_' ||
+        !strcmp(filename, ".") ||
+        !strcmp(filename, "..");
+}
+
+int handle_list(DIR *dir, buf_t *buf, unsigned page)
+{
+    struct dirent *info;
+    LOG("Requested page: '%d'\n", page);
+    unsigned to_skip = (page - 1) * LIST_ELEMENTS;
+    for (; to_skip && (info = readdir(dir)); to_skip--)
+        {   }
+    if (to_skip)
+        return -1; /* page too big */
+
+    unsigned rem = LIST_ELEMENTS;
+    unsigned i = 1;
+    assert(buf->used == 0);
+    buffer_appendf(buf, "---------- Files list page %d ----------\n\n", page);
+    while (rem && (info = readdir(dir)))
+    {
+        LOG("New iteration\n");
+        const char *filename = info->d_name;
+        if (list_is_to_skip(filename))
+            continue;
+        buffer_appendf(buf, "%d. %s\n", i, filename);
+        i++;
+    }
+    return 1;
+}
+
+unsigned list_get_argument(sess_t *sess)
+{
+    const buf_t *buf = sess->buf;
+    const char *str = (char *) buf->ptr + sizeof(CMD_LST);
+    char *endptr = (char *) str + (buf->used + ((void *) str - buf->ptr));
+    int res = strtol(str, &endptr, 10);
+    if (endptr == str || *endptr != '\0' || res == 0)
+    {
+        session_send_str(sess, LST_USG "\n");
+        return 0;
+    }
+    LOG("Page: %d\n", res);
+    return res;
+}
+
+int handle_req_list(serv_t *serv, sess_t *sess)
+{
+    buf_t *buf = sess->buf;
+    if (!(buf->used >= sizeof(CMD_LST) - 1 && !CMDMEMCMP(buf->ptr, CMD_LST)))
+        return 0;
+    LOG("Use this handle...\n");
+    buffer_append(buf, "\0", 1);
+    const unsigned page = list_get_argument(sess);
+    if (!page)
+        return -1;
+    buffer_clear(buf); /* buffer will be used in handle_list */
+    int res = handle_list(serv->db_dir, sess->buf, page);
+    if (res)
+        session_upload_buffer(sess);
+    else /* TODO Improve error message by including maximum page number */
+        session_send_str(sess, LST_IPG "\n");
+    seekdir(serv->db_dir, 0);
+    return res != 0 ? 1 : -1;
+}
+
 int handle_req_close(serv_t *serv, sess_t *sess)
 {
     UNUSED1(serv);
@@ -624,6 +710,7 @@ int handle_lsn_req(serv_t *serv, sess_t *sess)
     HDL_REQ(login, serv, sess);
     HDL_REQ(register, serv, sess);
     HDL_REQ(download, serv, sess);
+    HDL_REQ(list, serv, sess);
     HDL_REQ(help, serv, sess);
     HDL_REQ(close, serv, sess);
     HDL_REQ(dow_acc, serv, sess);

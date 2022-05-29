@@ -3,6 +3,8 @@
 
 #include "def.h"
 
+#include <dirent.h>
+
 /*
  * Server structure contains its own config, listening socket, database FD,
  * head for the list of registered users, all the pointers to active sessions
@@ -20,6 +22,7 @@ struct serv_t
     user_t *users;
     buf_t *sess_buf;
     buf_t *intro;
+    DIR *db_dir;
 };
 
 int serv_init(serv_t *serv, char **argv);

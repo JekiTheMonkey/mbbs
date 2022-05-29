@@ -23,7 +23,7 @@ sess_t *session_create(int cfd)
     sess->udfd = 0;
     sess->perms = 0;
     sess->usr = NULL;
-    sess->buf = buffer_create(SESS_BUF_DEF_SIZE);
+    sess->buf = buffer_create(SESS_BUF_SIZE);
     return sess;
 }
 
