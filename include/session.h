@@ -57,7 +57,7 @@ enum sys_file_zones {
     description = 1,                    /* file description */
     owner,                              /* owner username */
     last_edit,                          /* last edit date and time */
-    is_everyone,                        /* is everyne are allowed to download a file */
+    is_whitelist,                       /* is whitelist set */
     whitelist                           /* whitelist to download a file users */
 };
 
@@ -79,6 +79,12 @@ int session_send_data(sess_t *sess, const void *data, size_t bytes);
 int session_send_str(sess_t *sess, const char *str);
 int session_upload_buffer(sess_t *sess);
 int session_receive_data(sess_t *sess);
-int session_open_file(sess_t *sess, const char *path, int flags);
+char *create_sys_filepath(const char *file);
+FILE *open_sys_file(const char *file, const char *mode);
+FILE *create_sys_file(const char *filepath, const char *owner);
+int sfseek(FILE *file, sys_file_zones zone);
+int session_open_file(sess_t *sess, const char *file, int flags);
+int is_user_in_whitelist(FILE *sys_file, const char *username);
+int is_whitelist_set(FILE *sys_file);
 
 #endif /* SESSION_H */

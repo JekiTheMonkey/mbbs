@@ -26,6 +26,7 @@
 #define CMD_REG  "register"
 #define CMD_DOW  "download"
 #define CMD_LST  "list"
+#define CMD_DSC  "describe"
 #define CMD_EXIT "close"
 #define CMD_HELP "help"
 
@@ -68,11 +69,15 @@
 #define DOW_2LN ERR "Input filename is too long"
 #define DOW_UDR ERR "Input filename contains an underscore as the first " \
     "character"
-#define FIL_NEX ERR "File does not exist"
+#define DOW_FNE ERR "File does not exist"
+#define DOW_NPM ERR "You are not allowed to download this file"
 
 #define LST_USG USG "list <page-number>"
 #define LST_IPG ERR "Invalid page. Try natural numbers"
 #define LST_2BG ERR "Invalid page. Only %d pages are available"
+
+#define DSC_USG USG "describe <filename>"
+#define DSC_FOP ERR "Failed to open file"
 
 #define TERM_MSG "Terminating own work..."
 #define LIN_2LN "Your input line is too long, bye..."
@@ -91,11 +96,16 @@
 #define CMDMEMCMP(data, cmd) (memcmp(data, cmd, sizeof(cmd) - 1))
 #define CMDLENCMP(len, cmd) (len == sizeof(cmd) - 1)
 #define LOG_RET(code) do { LOG_L("\n"); return code; } while(0)
-#define ERR_TRY_AGAIN(sess, sst, code, clr_buf, msg) \
+#define HDL_ERR(sess, msg) \
+    do { \
+        session_send_str(sess, msg "\n"); \
+        return -1; \
+    } while(0)
+#define HDL_ERR_CHANGE_STATE(sess, sst, code, clr_buf, msg) \
     do { \
         if (clr_buf) \
             buffer_clear(sess->buf); \
-        session_send_str(sess, msg ". Try again.\n"); \
+        session_send_str(sess, msg "\n"); \
         sess->state = sst; \
         return code; \
     } while(0)
@@ -500,8 +510,7 @@ int handle_req_empty(serv_t *serv, sess_t *sess)
         return 0;
     LOG("Use this handle...\n");
     assert(buf->used == 0);
-    buffer_append(buf, "\0", 1); /* reply with silence */
-    session_upload_buffer(sess);
+    session_send_str(sess, ""); /* reply with silence */
     return 1;
 }
 
@@ -529,41 +538,41 @@ int handle_req_register(serv_t *serv, sess_t *sess)
     return 1;
 }
 
-#define HDL_ERR(sess, msg) \
-    do { \
-        session_send_str(sess, msg "\n"); \
-        return -1; \
-    } while(0)
+int is_allowed_to_download(sess_t *sess, FILE *sys_file)
+{
+    if (!is_whitelist_set(sys_file))
+        return 1;
+    if (sess->usr) /* logined */
+        return is_user_in_whitelist(sys_file, sess->usr->username);
+    return 0;
+}
 
 int download_file_checks(sess_t *sess)
 {
     buf_t *buf = sess->buf;
     const unsigned req_len = buf->used;
     const unsigned cmd_len = sizeof(CMD_DOW) - 1;
-    const char *path = (char *) buf->ptr + cmd_len + 1;
+    const char *path = buffer_get_argv_n(buf, 2);
+    buffer_append(buf, "\0", 1);
+    LOG("File: '%s'\n", path);
+
     if (req_len == cmd_len)
         HDL_ERR(sess, DOW_USG);
     if (req_len - cmd_len - 1 > MAX_FILE_LEN)
         HDL_ERR(sess, DOW_2LN);
     if (*path == '_')
         HDL_ERR(sess, DOW_UDR);
+    LOG("Request syntax analyze has been finished with success\n");
 
-    buffer_append(buf, "\0", 1); /* make act like a string */
-    LOG("File: '%s'\n", path);
-    int fd = open_file(path, O_RDONLY, 0);
-    if (fd == -1)
-        HDL_ERR(sess, FIL_NEX);
-
-    /*
-     * TODO Implement some special controls
-     *             \/ \/ \/
-     */
-    /* if (!file_exists(path)) */
-    /*     HDL_ERR(sess, "Error: File does not exist"); */
-    /* int fd = session_open_file(sess, path, O_RDONLY); */
-    /* if (fd == -1) */
-    /*     HDL_ERR(sess, "Error: You are not allowed to download this file"); */
-    sess->udfd = fd;
+    FILE *sys_file = open_sys_file(path, "r");
+    if (!sys_file)
+        HDL_ERR(sess, DOW_FNE);
+    if (!is_allowed_to_download(sess, sys_file))
+    {
+        fclose(sys_file);
+        HDL_ERR(sess, DOW_NPM);
+    }
+    fclose(sys_file);
     return 1;
 }
 
@@ -577,6 +586,10 @@ int handle_req_download(serv_t *serv, sess_t *sess)
     LOG("Use this handle...\n");
     if (download_file_checks(sess) == -1)
         return -1;
+    int fd = open_file(buffer_get_argv_n(buf, 2), O_RDONLY, 0);
+    if (fd == -1)
+        HDL_ERR(sess, DOW_FNE);
+    sess->udfd = fd;
     const size_t size = get_file_len(sess->udfd);
     LOG("File size: %lu\n", size);
     assert(buf->size > 64);
@@ -668,6 +681,56 @@ int handle_req_list(serv_t *serv, sess_t *sess)
     return res != 0 ? 1 : -1;
 }
 
+void describe_append_until_sysspc(buf_t *buf, FILE *sys_file)
+{
+    fseek(sys_file, 1, SEEK_CUR);
+    int ch;
+    while ((ch = getc(sys_file)) != SYS_FILE_SPC)
+    {
+        LOG("[%c] | %d\n", ch, ch);
+        assert(ch != EOF);
+        buffer_append(buf, (void *) &ch, 1);
+    }
+}
+
+void describe_form_msg(buf_t *buf, FILE *sys_file)
+{
+    buffer_appendf(buf, "Description: ");
+    describe_append_until_sysspc(buf, sys_file);
+    buffer_appendf(buf, "Owner: ");
+    describe_append_until_sysspc(buf, sys_file);
+    buffer_appendf(buf, "Last edit: ");
+    describe_append_until_sysspc(buf, sys_file);
+}
+
+int handle_req_describe(serv_t *serv, sess_t *sess)
+{
+    UNUSED1(serv);
+    buf_t *buf = sess->buf;
+    if (!(buf->used >= sizeof(CMD_DSC) - 1 && !CMDMEMCMP(buf->ptr, CMD_DSC)))
+        return 0;
+    LOG("Use this handle...\n");
+    if (buffer_count_argc(buf) != 2)
+    {
+        session_send_str(sess, DSC_USG "\n");
+        return 1;
+    }
+    buffer_append(buf, "\0", 1);
+    buffer_move_left(buf, sizeof(CMD_DSC)); /* discard command from buffer */
+    FILE *sys_file = open_sys_file((char *) buf->ptr, "r");
+    if (!sys_file)
+    {
+        session_send_str(sess, DSC_FOP "\n");
+        return -1;
+    }
+    fseek(sys_file, 1, SEEK_SET);
+    buffer_clear(buf);
+    describe_form_msg(buf, sys_file);
+    session_upload_buffer(sess);
+    fclose(sys_file);
+    return 1;
+}
+
 int handle_req_close(serv_t *serv, sess_t *sess)
 {
     UNUSED1(serv);
@@ -724,6 +787,7 @@ int handle_lsn_req(serv_t *serv, sess_t *sess)
     HDL_REQ(register, serv, sess);
     HDL_REQ(download, serv, sess);
     HDL_REQ(list, serv, sess);
+    HDL_REQ(describe, serv, sess);
     HDL_REQ(help, serv, sess);
     HDL_REQ(close, serv, sess);
     HDL_REQ(dow_acc, serv, sess);
@@ -760,11 +824,11 @@ int check_username(sess_t *sess)
     const unsigned len = buf->last_read_bytes;
     int res = check_username_len(len);
     if (res == 1)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, USR_2SH);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_usr, 1, 1, USR_2SH);
     if (res == 2)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, USR_2LN);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_usr, 1, 1, USR_2LN);
     if (check_username_chs(username, len))
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, USR_UCH);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_usr, 1, 1, USR_UCH);
     return 0;
 }
 
@@ -786,9 +850,9 @@ int user_try_enter(sess_t *sess, user_t *orig_usr, const user_t *input_usr)
 {
     LOG("\n");
     if (!orig_usr)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1, USR_NFN);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_usr, -1, 1, USR_NFN);
     if (strcmp(orig_usr->password, input_usr->password))
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -2, 1, PWD_INC);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_usr, -2, 1, PWD_INC);
     session_send_str(sess, LOG_SUC "\n");
     sess->usr = orig_usr;
     sess->state = sst_lsn_req;
@@ -801,7 +865,7 @@ int user_try_create(serv_t *serv, sess_t *sess, const user_t *found_usr,
 {
     LOG("\n");
     if (found_usr)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, -1, 1, USR_TKN);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_usr, -1, 1, USR_TKN);
     LOG("New user has registered - '%s'\n", input_usr->username);
     input_usr =
         user_create(input_usr->username, input_usr->password); /* duplicate */
@@ -828,15 +892,16 @@ int check_password(sess_t *sess)
     char *password = strfind((char *) sess->buf->ptr, '\0') + 1;
     const unsigned len = buf->last_read_bytes;
     assert(password != (char *) 1);
-    assert(strnfind(password, '\0', len) != NULL);
+    assert(strnfind(password, '\0', len + 1) != NULL);
     LOG("Given password: '%s'\n", password);
     int res = check_password_len(len);
     if (res == 1)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, PWD_2SH);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_req, 1, 1, PWD_2SH);
     if (res == 2)
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, PWD_2LN);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_req, 1, 1, PWD_2LN);
     if (check_password_chs(password, len))
-        ERR_TRY_AGAIN(sess, sst_ask_usr, 1, 1, PWD_UCH);
+        HDL_ERR_CHANGE_STATE(sess, sst_lsn_req, 1, 1, PWD_UCH);
+    LOG("Password is ok\n");
     return 0;
 }
 
@@ -863,6 +928,7 @@ int handle_lsn_pwd(serv_t *serv, sess_t *sess)
         user_try_enter(sess, found, &usr);
     else
         user_try_create(serv, sess, found, &usr);
+    buffer_clear(buf);
     return 1;
 }
 

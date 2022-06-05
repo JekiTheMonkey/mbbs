@@ -18,6 +18,19 @@
     "   #     #    ######     ######      #####     \n"
 #define AUTH_KEY "mbbs-client"
 #define SYS_FILE_SPC '#'
+#define SYS_FILE_SPC_STR "#"
+/* #define SYS_FILE_TMPL \ */
+/*     /1* Description                      *1/ SYS_FILE_SPC " empty" \ */
+/*     /1* Owner                            *1/ SYS_FILE_SPC " owner" \ */
+/*     /1* Last edit                        *1/ SYS_FILE_SPC " date" \ */
+/*     /1* Are everyone allowed to download *1/ SYS_FILE_SPC " no" \ */
+/*     /1* Whitelist                        *1/ SYS_FILE_SPC " empty" */
+#define SYS_FILE_TMPL \
+    SYS_FILE_SPC_STR " empty\n" \
+    SYS_FILE_SPC_STR " %s\n" \
+    SYS_FILE_SPC_STR " %s\n" \
+    SYS_FILE_SPC_STR " no\n" \
+    SYS_FILE_SPC_STR " empty"
 
 #define MAX_FILE_LEN 256
 
