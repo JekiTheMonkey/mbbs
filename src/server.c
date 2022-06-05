@@ -71,7 +71,8 @@
 #define FIL_NEX ERR "File does not exist"
 
 #define LST_USG USG "list <page-number>"
-#define LST_IPG ERR "Invalid page"
+#define LST_IPG ERR "Invalid page. Try natural numbers"
+#define LST_2BG ERR "Invalid page. Only %d pages are available"
 
 #define TERM_MSG "Terminating own work..."
 #define LIN_2LN "Your input line is too long, bye..."
@@ -599,17 +600,15 @@ int handle_list(DIR *dir, buf_t *buf, unsigned page)
     struct dirent *info;
     LOG("Requested page: '%d'\n", page);
     unsigned to_skip = (page - 1) * LIST_ELEMENTS;
-    for (; to_skip && (info = readdir(dir)); to_skip--)
-        {   }
+    while (to_skip && ((info = readdir(dir))))
+        if (!list_is_to_skip(info->d_name))
+            to_skip--;
     if (to_skip)
-<<<<<<< HEAD
     {
         LOG("Passed page is too big\n");
-        return -1; /* page too big */
+        return (((page - 1) * LIST_ELEMENTS - to_skip) % LIST_ELEMENTS) + 2;
+            /* page too big, return number of pages + 1 */
     }
-=======
-        return -1; /* page too big */
->>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
 
     unsigned rem = LIST_ELEMENTS;
     unsigned i = 1;
@@ -624,28 +623,19 @@ int handle_list(DIR *dir, buf_t *buf, unsigned page)
         buffer_appendf(buf, "%d. %s\n", i, filename);
         i++;
     }
+    if (rem == LIST_ELEMENTS)
+        buffer_append(buf, "Empty\n", 6);
     return 1;
 }
 
-<<<<<<< HEAD
 int list_get_argument(sess_t *sess)
-=======
-unsigned list_get_argument(sess_t *sess)
->>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
 {
     const buf_t *buf = sess->buf;
     const char *str = (char *) buf->ptr + sizeof(CMD_LST);
     char *endptr = (char *) str + (buf->used + ((void *) str - buf->ptr));
     int res = strtol(str, &endptr, 10);
-<<<<<<< HEAD
     if (endptr == str || *endptr != '\0')
-=======
-    if (endptr == str || *endptr != '\0' || res == 0)
->>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
-    {
-        session_send_str(sess, LST_USG "\n");
         return 0;
-    }
     LOG("Page: %d\n", res);
     return res;
 }
@@ -657,26 +647,23 @@ int handle_req_list(serv_t *serv, sess_t *sess)
         return 0;
     LOG("Use this handle...\n");
     buffer_append(buf, "\0", 1);
-<<<<<<< HEAD
+    if (buffer_count_argc(buf) != 2)
+    {
+        session_send_str(sess, LST_USG "\n");
+        return 1;
+    }
     const int page = list_get_argument(sess);
-    if (page == 0)
-        session_send_str(sess, LST_IPG "\n");
     if (page <= 0)
-        return -1;
-    buffer_clear(buf); /* buffer will be used in handle_list */
-    int res = handle_list(serv->db_dir, sess->buf, page);
-    if (res != -1)
-=======
-    const unsigned page = list_get_argument(sess);
-    if (!page)
-        return -1;
-    buffer_clear(buf); /* buffer will be used in handle_list */
-    int res = handle_list(serv->db_dir, sess->buf, page);
-    if (res)
->>>>>>> c50c8ffedab162b60f3b45a7b562af0d6bba10d4
-        session_upload_buffer(sess);
-    else /* TODO Improve error message by including maximum page number */
+    {
         session_send_str(sess, LST_IPG "\n");
+        return -1;
+    }
+    LOG("Given page is correct\n");
+    buffer_clear(buf); /* buffer will be used in handle_list */
+    int res = handle_list(serv->db_dir, sess->buf, page);
+    if (res > 1) /* error check. res contains max pages available */
+        buffer_appendf(buf, LST_2BG "\n", res - 1);
+    session_upload_buffer(sess);
     seekdir(serv->db_dir, 0);
     return res != 0 ? 1 : -1;
 }
