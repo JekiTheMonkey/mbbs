@@ -13,7 +13,7 @@
  *
  * When one of the listenig (input) states is active read operations from client
  * socket are performed until a LF is not found. All the read data are stored
- * into an internal buffer of size 4092*.
+ * into an internal buffer of size 4096*.
  *
  * When writing operation can't be perfomed in one iteration (for example file
  * upload) the session will mark how many bytes have been written so far in
@@ -31,6 +31,7 @@ enum com_state {
     sst_lsn_req,                        /* listen for a request */
     sst_lsn_usr,                        /* listen for username */
     sst_lsn_pwd,                        /* listen for password */
+    sst_download,                       /* receive a file from user */
 
     /* Write states */
     sst_intro,                          /* show intro */
@@ -45,12 +46,6 @@ enum com_action {
     cac_unk,                            /* unknown */
     cac_log,                            /* login */
     cac_reg,                            /* register */
-};
-
-enum permissions {
-    perms_upload        = 1 << 0,       /* upload files */
-    perms_remove        = 1 << 1,       /* remove files */
-    perms_edit_desc     = 1 << 2,       /* edit descriptions */
 };
 
 enum sys_file_zones {
@@ -68,7 +63,7 @@ struct sess_t
     struct sockaddr_in *addr;
     int cfd; /* client file descriptor */
     int udfd; /* upload/download file descriptor */
-    int perms;
+    size_t to_download;
     user_t *usr;
     buf_t *buf;
 };

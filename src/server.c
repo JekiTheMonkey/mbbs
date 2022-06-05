@@ -25,6 +25,7 @@
 #define CMD_LOG  "login"
 #define CMD_REG  "register"
 #define CMD_DOW  "download"
+#define CMD_UPL  "upload"
 #define CMD_LST  "list"
 #define CMD_DSC  "describe"
 #define CMD_EXIT "close"
@@ -45,6 +46,7 @@
     "   " CMD_LOG  " \tLogin into account\n" \
     "   " CMD_REG  " \tRegister a new account\n" \
     "   " CMD_DOW  " \tDownload a file\n" \
+    "   " CMD_UPL  " \tUpload a file\n" \
     "   " CMD_LST  " \tList available files\n" \
     "   " CMD_HELP " \tSee this message\n" \
     "   " CMD_EXIT " \tClose connection"
@@ -64,6 +66,7 @@
 
 #define REG_SUC "Your account has been successfully registered"
 #define LOG_SUC "Successful login"
+#define USR_ALN "You are already logined in"
 
 #define DOW_USG USG "download <file> <destination>"
 #define DOW_2LN ERR "Input filename is too long"
@@ -71,6 +74,15 @@
     "character"
 #define DOW_FNE ERR "File does not exist"
 #define DOW_NPM ERR "You are not allowed to download this file"
+
+#define UPL_USG USG "upload <source> <file>"
+#define UPL_2LN ERR "Input filename is too long"
+#define UPL_UDR ERR "Input filename contains an underscore as the first " \
+    "character"
+#define UPL_FEX ERR "File already exists"
+#define UPL_NLN ERR "Unlogined users are not allowed to upload files"
+#define UPL_NPM ERR "You are not allowed to upload files"
+#define UPL_NNA ERR "This filename is not allowed"
 
 #define LST_USG USG "list <page-number>"
 #define LST_IPG ERR "Invalid page. Try natural numbers"
@@ -88,6 +100,7 @@
 /* Server messages */
 #define DMD_SIL "DMD_SIL" /* Demand silence on client side - no invite msg */
 #define DOW_DET "DOW_DET" /* Download file's details */
+#define UPL_ALW "UPL_ALW" /* Allow client to upload a file */
 /* Client messages */
 #define DOW_ACC "DOW_ACC" /* Client accepts to download a file */
 
@@ -233,43 +246,69 @@ void open_db_fd(serv_t *serv)
         ELOG_EX("Failed to open or create database file '%s'", path);
 }
 
+/*
+ * Upload files         1 << 0
+ * Remove files         1 << 1
+ * Edit descriptions    1 << 2
+ */
+#define CHECK_FORMAT(ptr) if (!((ptr) - 1)) LOG_EX("Data is of wrong format\n")
+perms_t user_read_permissions(const char *l_it, const char *r_it)
+{
+    perms_t perms = 0;
+    int num, i, len = r_it - l_it;
+    const char *tmp, *it = strnfindnth(l_it, ' ', 2, len) + 1;
+    CHECK_FORMAT(it);
+    len -= it - l_it;
+    for (i = 0; i < 3; i++)
+    {
+        tmp = strnfind(it, ' ', len) + 1;
+        num = atoi(it);
+        assert(num == 0 || num == 1);
+        perms |= num << i;
+        len -= tmp - it;
+        it = tmp;
+    }
+    return perms;
+}
+
 void read_db(serv_t *serv)
 {
-    int res, occupied = 0, linelen, tot_bytes;
-    char buf[64], *line_l_it, *line_r_it;
+    perms_t perms;
+    int res, used = 0, linelen, tot_bytes;
+    char buf[4096], *line_l_it, *line_r_it;
     char *usr_p, *pwd_p;
     int usr_len, pwd_len;
     user_t *usr;
-    while ((res =
-        read(serv->db_fd, buf + occupied, sizeof(buf) - occupied)) > 0)
+    while ((res = read(serv->db_fd, buf + used, sizeof(buf) - used)) > 0)
     {
         line_l_it = buf;
-        occupied += res;
-        tot_bytes = occupied;
-        while ((line_r_it = strnfind(line_l_it, '\n', occupied)))
+        used += res;
+        tot_bytes = used;
+        while ((line_r_it = strnfind(line_l_it, '\n', used)))
         {
             linelen = line_r_it - line_l_it;
-            occupied -= linelen + 1; /* trailing lf  */
+            used -= linelen + 1; /* trailing lf  */
 
             usr_p = line_l_it;
             pwd_p = strnfind(line_l_it, ' ', linelen) + 1;
-            if (pwd_p == (char *) 1)
-                LOG_EX("Data is of wrong format\n");
+            CHECK_FORMAT(pwd_p);
+            perms = user_read_permissions(line_l_it, line_r_it);
 
             usr_len = pwd_p - usr_p - 1;
-            pwd_len = line_r_it - pwd_p;
+            pwd_len = strfind(pwd_p, ' ') - pwd_p;
             usr_p[usr_len] = '\0';
             pwd_p[pwd_len] = '\0';
-
             LOG("Read username '%.*s'\n", usr_len, usr_p);
             LOG("Read password '%.*s'\n", pwd_len, pwd_p);
+            LOG("Permissions: ");
+            print_bits((void *) &perms, 1);
 
-            usr = user_create(usr_p, pwd_p);
+            usr = user_create(usr_p, pwd_p, perms);
             user_push_back(&serv->users, usr);
 
             line_l_it = line_r_it + 1;
         }
-        memmove(buf, buf + tot_bytes - occupied, occupied);
+        memmove(buf, buf + tot_bytes - used, used);
     }
     if (res == -1)
         ELOG_EX("Failed to read from database file");
@@ -284,7 +323,10 @@ void save_db(const serv_t *serv)
     lseek(serv->db_fd, 0, SEEK_SET);
     for (; it; it = it->next)
     {
-        int res = sprintf(buf, "%s %s\n", it->username, it->password);
+        perms_t p = it->perms;
+        int res = sprintf(buf, "%s %s %d %d %d\n", it->username, it->password,
+            !!(p & perms_upload), !!(p & perms_remove),
+            !!(p & perms_edit_desc));
         if (write(serv->db_fd, buf, res) == -1)
             PELOG_EX("Failed to save database record");
         LOG("Write '%.*s'\n", res - 1, buf);
@@ -353,6 +395,7 @@ void set_fd(com_state state, int fd, fd_set *readfds, fd_set *writefds)
         case sst_lsn_req:
         case sst_lsn_usr:
         case sst_lsn_pwd:
+        case sst_download:
             FD_SET(fd, readfds); break;
 
         /* Write states */
@@ -514,6 +557,13 @@ int handle_req_empty(serv_t *serv, sess_t *sess)
     return 1;
 }
 
+int is_already_logined(sess_t *sess)
+{
+    if (sess->usr)
+        session_send_str(sess, USR_ALN);
+    return !!sess->usr;
+}
+
 int handle_req_login(serv_t *serv, sess_t *sess)
 {
     UNUSED1(serv);
@@ -521,6 +571,8 @@ int handle_req_login(serv_t *serv, sess_t *sess)
     if (!(buf->used >= sizeof(CMD_LOG) - 1 && !CMDMEMCMP(buf->ptr, CMD_LOG)))
         return 0;
     LOG("Use this handle...\n");
+    if (is_already_logined(sess))
+        return 1;
     sess->state = sst_ask_usr;
     sess->action = cac_log;
     return 1;
@@ -552,19 +604,19 @@ int download_file_checks(sess_t *sess)
     buf_t *buf = sess->buf;
     const unsigned req_len = buf->used;
     const unsigned cmd_len = sizeof(CMD_DOW) - 1;
-    const char *path = buffer_get_argv_n(buf, 2);
+    const char *filename = buffer_get_argv_n(buf, 2);
     buffer_append(buf, "\0", 1);
-    LOG("File: '%s'\n", path);
+    LOG("File: '%s'\n", filename);
 
     if (req_len == cmd_len)
         HDL_ERR(sess, DOW_USG);
     if (req_len - cmd_len - 1 > MAX_FILE_LEN)
         HDL_ERR(sess, DOW_2LN);
-    if (*path == '_')
+    if (*filename == '_')
         HDL_ERR(sess, DOW_UDR);
     LOG("Request syntax analyze has been finished with success\n");
 
-    FILE *sys_file = open_sys_file(path, "r");
+    FILE *sys_file = open_sys_file(filename, "r");
     if (!sys_file)
         HDL_ERR(sess, DOW_FNE);
     if (!is_allowed_to_download(sess, sys_file))
@@ -576,7 +628,6 @@ int download_file_checks(sess_t *sess)
     return 1;
 }
 
-/* For now supports only root directory */
 int handle_req_download(serv_t *serv, sess_t *sess)
 {
     UNUSED1(serv);
@@ -597,6 +648,74 @@ int handle_req_download(serv_t *serv, sess_t *sess)
 
     session_upload_buffer(sess);
     sess->state = sst_lsn_req;
+    return 1;
+}
+
+int is_filename_allowed(const char *filename)
+{
+    return
+        !strcmp(filename, "intro") ||
+        !strcmp(filename, "users") ||
+        !strcmp(filename, "intro");
+}
+
+int upload_file_checks(sess_t *sess)
+{
+    buf_t *buf = sess->buf;
+    const int argc = buffer_count_argc(buf);
+    const char *filename = buffer_get_argv_n(buf, 2);
+    const unsigned req_len = buf->used;
+    const unsigned cmd_len = sizeof(CMD_UPL) - 1;
+
+    buffer_append(buf, "\0", 1);
+    LOG("File: '%s'\n", filename);
+
+    if (argc != 3 || req_len == cmd_len)
+        HDL_ERR(sess, UPL_USG);
+    if (req_len - cmd_len - 1 > MAX_FILE_LEN)
+        HDL_ERR(sess, UPL_2LN);
+    if (*filename == '_')
+        HDL_ERR(sess, UPL_UDR);
+    if (!sess->usr)
+        HDL_ERR(sess, UPL_NLN);
+    if (!(sess->usr->perms & perms_upload))
+        HDL_ERR(sess, UPL_NPM);
+    if (file_exists(filename))
+        HDL_ERR(sess, UPL_FEX);
+    if (!is_filename_allowed(filename))
+        HDL_ERR(sess, UPL_NNA);
+    LOG("Upload request is ok\n");
+    return 1;
+}
+
+int handle_req_upload(serv_t *serv, sess_t *sess)
+{
+    UNUSED1(serv);
+    buf_t *buf = sess->buf;
+    if (!(buf->used >= sizeof(CMD_UPL) - 1 && !CMDMEMCMP(buf->ptr, CMD_UPL)))
+        return 0;
+    LOG("Use this handle...\n");
+    if (upload_file_checks(sess) == -1)
+        return -1;
+    const char *filename = buffer_get_argv_n(buf, 2);
+    const char *end = strfind(filename, ' ');
+    const unsigned len = end - filename;
+    char *tmp = (char *) malloc(len + 1);
+    memcpy(tmp, filename, len);
+    memset(tmp + len, 0, 1);
+    filename = tmp;
+    const size_t size = atol(buffer_get_argv_n(buf, 3));
+    /*
+     * TODO Check if hard drive capacity is enough to store the file
+     */
+
+    FILE *sys_file = create_sys_file(filename, sess->usr->username);
+    fclose(sys_file);
+    sess->udfd = open_file(filename, O_WRONLY | O_CREAT, 0660);
+
+    session_send_str(sess, UPL_ALW);
+    sess->to_download = size;
+    sess->state = sst_download;
     return 1;
 }
 
@@ -635,6 +754,7 @@ int handle_list(DIR *dir, buf_t *buf, unsigned page)
             continue;
         buffer_appendf(buf, "%d. %s\n", i, filename);
         i++;
+        rem--;
     }
     if (rem == LIST_ELEMENTS)
         buffer_append(buf, "Empty\n", 6);
@@ -786,6 +906,7 @@ int handle_lsn_req(serv_t *serv, sess_t *sess)
     HDL_REQ(login, serv, sess);
     HDL_REQ(register, serv, sess);
     HDL_REQ(download, serv, sess);
+    HDL_REQ(upload, serv, sess);
     HDL_REQ(list, serv, sess);
     HDL_REQ(describe, serv, sess);
     HDL_REQ(help, serv, sess);
@@ -867,8 +988,8 @@ int user_try_create(serv_t *serv, sess_t *sess, const user_t *found_usr,
     if (found_usr)
         HDL_ERR_CHANGE_STATE(sess, sst_lsn_usr, -1, 1, USR_TKN);
     LOG("New user has registered - '%s'\n", input_usr->username);
-    input_usr =
-        user_create(input_usr->username, input_usr->password); /* duplicate */
+    input_usr = user_create(
+        input_usr->username, input_usr->password, 0); /* duplicate */
     user_push_back(&serv->users, input_usr);
     session_send_str(sess, REG_SUC "\n");
     sess->state = sst_lsn_req;
@@ -932,6 +1053,30 @@ int handle_lsn_pwd(serv_t *serv, sess_t *sess)
     return 1;
 }
 
+int handle_lsn_dwn(serv_t *serv, sess_t *sess)
+{
+    UNUSED1(serv);
+    if (sess->state != sst_download)
+        return 0;
+
+    buf_t *buf = sess->buf;
+    LOG("\n");
+    sess->to_download -= buf->used;
+    int res = write(sess->udfd, buf->ptr, buf->used);
+    if (res == -1)
+        PELOG("Failed to write download file");
+    if (buf->used != buf->size)
+    {
+        LOG("A file has been downloaded successfully\n");
+        assert(buf->used < buf->size);
+        close(sess->udfd);
+        sess->udfd = 0;
+        sess->state = sst_lsn_req;
+    }
+    buffer_clear(buf);
+    return 1;
+}
+
 int handle_str_write(sess_t *sess, const char *str, com_state cur_sst,
     com_state next_sst)
 {
@@ -974,6 +1119,7 @@ int handle_lsn_states(serv_t *serv, sess_t *sess)
     HDL_LSN(req, serv, sess);
     HDL_LSN(usr, serv, sess);
     HDL_LSN(pwd, serv, sess);
+    HDL_LSN(dwn, serv, sess);
     LOG_L("\n");
     return 1;
 }

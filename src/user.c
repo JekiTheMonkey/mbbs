@@ -6,12 +6,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-user_t *user_create(const char *username, const char *password)
+user_t *user_create(const char *username, const char *password, perms_t perms)
 {
     user_t *item = (user_t *) malloc(sizeof(user_t));
     ALOG(item);
     item->username = strdup((char *) username);
     item->password = strdup((char *) password);
+    item->perms = perms;
     item->next = NULL;
     return item;
 }

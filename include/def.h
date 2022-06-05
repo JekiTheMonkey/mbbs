@@ -74,7 +74,7 @@ typedef struct serv_t serv_t;
 typedef struct sess_t sess_t;
 typedef enum com_state com_state;
 typedef enum com_action com_action;
-typedef enum permissions permissions;
+typedef enum perms_t perms_t;
 typedef enum sys_file_zones sys_file_zones;
 
 #define DEF_IP "0.0.0.0"

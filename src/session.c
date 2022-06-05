@@ -22,7 +22,7 @@ sess_t *session_create(int cfd)
     sess->addr = NULL;
     sess->cfd = cfd;
     sess->udfd = 0;
-    sess->perms = 0;
+    sess->to_download = 0;
     sess->usr = NULL;
     sess->buf = buffer_create(SESS_BUF_SIZE);
     return sess;
@@ -39,7 +39,7 @@ void session_delete(sess_t *sess)
     sess->addr = NULL;
     sess->cfd = -1;
     sess->udfd = -1;
-    sess->perms = -1;
+    sess->to_download = -1;
     sess->usr = NULL;
     sess->buf = NULL;
 
