@@ -145,7 +145,6 @@
     #define LOG(...)                    ALL_UNUSED(__VA_ARGS__)
     #define LOG_E(...)                  ALL_UNUSED(__VA_ARGS__)
     #define LOG_L(...)                  ALL_UNUSED(__VA_ARGS__)
-    #define LOG_EX(...)                 LL_UNUSED(__VA_ARGS__)
     #define LOG_EC(...)                 ALL_UNUSED(__VA_ARGS__)
     #define LOG_LC(...)                 ALL_UNUSED(__VA_ARGS__)
     #define PLOG(...)                   ALL_UNUSED(__VA_ARGS__)
@@ -159,6 +158,7 @@
     #define PELOG_E(msg)       PELOG(msg)
     #define PELOG_L(msg)       PELOG(msg)
     #define PELOG_EX(msg) do { perror(msg); exit(1); } while(0)
+    #define LOG_EX(...)   do { ALL_UNUSED(__VA_ARGS__); exit(1); } while(0)
 
     #define LOG_CFNPP(ptr)     do { assert(ptr); } while (0)
     #define LOG_FNPP(ptr)      do { assert(ptr); assert(*ptr); } while (0)

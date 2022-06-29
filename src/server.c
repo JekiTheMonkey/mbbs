@@ -209,7 +209,9 @@ int create_socket()
 void allow_reuse_port(int fd)
 {
     int opt = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    int res = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (res == -1)
+        PELOG("Failed to set socket option (SO_REUSEADDR)");
     LOG("Server socket has become able to reuse a port\n");
 }
 
@@ -301,7 +303,9 @@ void read_db(serv_t *serv)
             LOG("Read username '%.*s'\n", usr_len, usr_p);
             LOG("Read password '%.*s'\n", pwd_len, pwd_p);
             LOG("Permissions: ");
+#ifdef _TRACE
             print_bits((void *) &perms, 1);
+#endif
 
             usr = user_create(usr_p, pwd_p, perms);
             user_push_back(&serv->users, usr);
@@ -312,7 +316,9 @@ void read_db(serv_t *serv)
     }
     if (res == -1)
         ELOG_EX("Failed to read from database file");
+#ifdef _TRACE
     user_print(serv->users);
+#endif
 }
 
 void save_db(const serv_t *serv)
